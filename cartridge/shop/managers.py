@@ -2,7 +2,7 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from django.db.models import Manager, Q
+from django.db.models import Manager, Q, F
 from django.utils.datastructures import SortedDict
 
 from mezzanine.conf import settings
@@ -84,6 +84,18 @@ class ProductVariationManager(Manager):
                 # Lookup unspecified options as null to ensure a
                 # unique filter.
                 variation = dict(zip(options.keys(), variation))
+
+                # Explicitly specify SKU, if any options available
+                # Since the SKU is the primary key, that overwrites it
+                option = None
+                for option in ('option1', 'option2'):
+                    if option in variation:
+                        from cartridge.shop.models import Product
+                        product = Product.objects.get(id=self.core_filters['product__id'])
+                        if product.actual_item_code:
+                            variation['sku'] = '%s-%s' % (product.actual_item_code, variation[option])
+                            break
+
                 lookup = dict(variation)
                 lookup.update(self._empty_options_lookup(exclude=variation))
                 try:
@@ -178,12 +190,48 @@ class DiscountCodeManager(Manager):
         """
         Items flagged as active and within date range as well checking
         that the given cart contains items that the code is valid for.
+
+        MB - Now supports categories & products
+        DP - Also supports validation of number of times used
         """
-        total_price_valid = (Q(min_purchase__isnull=True) |
-                             Q(min_purchase__lte=cart.total_price()))
-        discount = self.active().get(total_price_valid, code=code)
-        products = discount.all_products()
-        if products.count() > 0:
-            if products.filter(variations__sku__in=cart.skus()).count() == 0:
-                raise self.model.DoesNotExist
+        total_price_valid = (
+            Q(min_purchase__isnull=True) |
+            Q(min_purchase__lte=cart.total_price())
+        )
+        usages_remaining_valid = (
+            Q(allowed_no_of_uses=0) | 
+            Q(no_of_times_used__lt=F('allowed_no_of_uses'))
+        )
+
+        discount = self.active().get(total_price_valid, usages_remaining_valid, code=code)
+        discount_categories = discount.categories.all()
+        skus = [item.sku for item in cart]
+        # XXX: Required import as managers
+        from models import Product
+        cart_products = Product.objects.filter(variations__sku__in=skus)
+        valid_categories = cart_products.filter(categories__in=discount_categories)
+
+        # This does a SQL INTERSECT operation on the products on the discount code and 
+        # the products in their cart. If any results, then it's a valid discount code.
+        valid_products = Product.objects.filter(variations__sku__in=skus) & discount.products.all()
+
+        # So basically here we're confirming that the punter has at least 1 product
+        # in their cart which is valid for the discount code's product or category restrictions
+        # If so then it's a valid code that will only be applied to those products 
+        # (see DiscountCode.calculate_cart() for how that happens)
+        if valid_products.count() == 0 and valid_categories.count() == 0:
+            raise self.model.DoesNotExist
         return discount
+
+class CategoryPageImageManager(Manager):
+    """
+    Provides filter for restricting items returned by status and
+    publish date when the given user is not a staff member.
+    """
+
+    def active(self):
+        return self.filter(
+            Q(publish_date__lte=datetime.now()) | Q(publish_date__isnull=True),
+            Q(expiry_date__gte=datetime.now()) | Q(expiry_date__isnull=True),
+            Q(active=True)
+        )
