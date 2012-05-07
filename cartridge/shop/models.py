@@ -501,6 +501,20 @@ class Order(models.Model):
                             choices=settings.SHOP_ORDER_STATUS_CHOICES,
                             default=settings.SHOP_ORDER_STATUS_CHOICES[0][0])
 
+    #custom CO fields
+    rms_order_id = CharField(_("RMS Order ID"), max_length=60, blank=True)
+    has_rms_order_id = models.BooleanField(default=False)
+
+    rms_customer_id = CharField(_("RMS Customer ID"), max_length=60, blank=True)
+    rms_message = CharField(_("RMS Message"), max_length=200, blank=True,
+            default="")
+    rms_last_submitted = models.DateTimeField(_("RMS Last submitted"), blank=True, null=True)
+
+    payment_gateway_transaction_id = CharField(_("TNS Transaction ID"),
+            max_length=80, blank=True, help_text="Currently this comes from TNS")
+    payment_gateway_transaction_type = CharField(_("TNS Transaction Type"),
+            max_length=80, blank=True, help_text="Currently this comes from TNS")
+
     objects = managers.OrderManager()
 
     # These are fields that are stored in the session. They're copied to
@@ -511,6 +525,11 @@ class Order(models.Model):
         verbose_name = _("Order")
         verbose_name_plural = _("Orders")
         ordering = ("-id",)
+
+    def save(self, *args, **kwargs):
+        #custom CO save
+        self.has_rms_order_id = len(self.rms_order_id)>0
+        super(Order, self).save(*args, **kwargs)
 
     def __unicode__(self):
         return "#%s %s %s" % (self.id, self.billing_name(), self.time)
@@ -870,7 +889,9 @@ class DiscountCodeUniqueAbstract(models.Model):
     class Meta:
         abstract = True
 
-class DiscountCode(Discount):
+#TODO: This is a stock cartridge class that has some CO customisations
+#      One day shift out of stock cartridge.
+class DiscountCode(Discount, DiscountCodeUniqueAbstract):
     """
     A code that can be entered at the checkout process to have a
     discount applied to the total purchase amount.
@@ -879,6 +900,8 @@ class DiscountCode(Discount):
     code = fields.DiscountCodeField(_("Code"), unique=True)
     min_purchase = fields.MoneyField(_("Minimum total purchase"))
     free_shipping = models.BooleanField(_("Free shipping"))
+    shipping_restriction = models.ManyToManyField('ShippingOption', blank=True,
+                        null=True)
 
     objects = managers.DiscountCodeManager()
 
