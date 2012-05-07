@@ -18,6 +18,7 @@ from mezzanine.pages.models import Page
 
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
+from cartridge_extras.models import ShippingOption #TODO, when DiscountCode oz customisations extracted, remove this import
 
 import logging
 splog = logging.getLogger('stockpool.log')
@@ -900,7 +901,7 @@ class DiscountCode(Discount, DiscountCodeUniqueAbstract):
     code = fields.DiscountCodeField(_("Code"), unique=True)
     min_purchase = fields.MoneyField(_("Minimum total purchase"))
     free_shipping = models.BooleanField(_("Free shipping"))
-    shipping_restriction = models.ManyToManyField('ShippingOption', blank=True,
+    shipping_restriction = models.ManyToManyField(ShippingOption, blank=True,
                         null=True)
 
     objects = managers.DiscountCodeManager()
