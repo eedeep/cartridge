@@ -39,8 +39,10 @@ class CategoryAdmin(PageAdmin):
 class ProductVariationAdmin(admin.TabularInline):
     verbose_name_plural = _("Current variations")
     model = ProductVariation
-    fields = ("sku", "default", "num_in_stock", "unit_price", "sale_price",
-              "sale_from", "sale_to", "image")
+    fields = ("sku", "default", "num_in_stock_pool", "num_in_stock", "unit_price", "sale_price", 
+        "sale_from", "sale_to", "image")
+    #XXX Add readonly fields here for stock levels. For testing 
+    # readonly_fields = ("num_in_stock", "num_in_stock_pool")
     extra = 0
     formfield_overrides = {MoneyField: {"widget": MoneyWidget}}
     form = ProductVariationAdminForm
@@ -53,11 +55,11 @@ class ProductImageAdmin(TabularDynamicInlineAdmin):
 
 
 product_fieldsets = deepcopy(DisplayableAdmin.fieldsets)
-product_fieldsets[0][1]["fields"][1] = ("status", "available")
-product_fieldsets[0][1]["fields"].extend(["categories", "content"])
+product_fieldsets[0][1]["fields"][1] = ("status")
+product_fieldsets[0][1]["fields"].extend([("ranking", "available", "featured", ),  "colour", "categories", 
+                                          "content", ("master_item_code", "actual_item_code", )])
 product_fieldsets = list(product_fieldsets)
 product_fieldsets.append((_("Other products"), {
-    "classes": ("collapse-closed",),
     "fields": ("related_products", "upsell_products")}))
 product_fieldsets.insert(1, (_("Create new variations"),
     {"classes": ("create-variations",), "fields": option_fields}))

@@ -20,7 +20,6 @@ from cartridge.shop.models import Product, ProductOption, ProductVariation
 from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
 from cartridge.shop.utils import make_choices, set_locale, set_shipping
 
-
 ADD_PRODUCT_ERRORS = {
     "invalid_options": _("The selected options are currently unavailable."),
     "no_stock": _("The selected options are currently not in stock."),
@@ -431,7 +430,7 @@ class ProductAdminForm(forms.ModelForm):
         instance = kwargs.get("instance")
         if instance:
             queryset = Product.objects.exclude(id=instance.id)
-            self.fields["related_products"].queryset = queryset
+            self.fields["related_products"].queryset = queryset 
             self.fields["upsell_products"].queryset = queryset
 
 

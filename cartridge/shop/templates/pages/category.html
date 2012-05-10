@@ -42,7 +42,7 @@
         {% else %}
         <div class="placeholder"></div>
         {% endif %}
-        <h6>{{ product }}</h6>
+        <h6>{{ product.title }}</h6>
         {% if product.has_price %}
             {% if product.on_sale %}
             <span class="old-price">{{ product.unit_price|currency }}</span>
