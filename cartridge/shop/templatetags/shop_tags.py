@@ -65,6 +65,12 @@ def order_totals(context):
     """
     return _order_totals(context)
 
+@register.inclusion_tag("shop/your_cart.html", takes_context=True)
+def your_cart(context):
+    """
+    HTML version of order_totals.
+    """
+    return _order_totals(context)
 
 @register.inclusion_tag("shop/includes/order_totals.txt", takes_context=True)
 def order_totals_text(context):
@@ -72,3 +78,51 @@ def order_totals_text(context):
     Text version of order_totals.
     """
     return _order_totals(context)
+
+
+@register.inclusion_tag("shop/product_sorting.html", takes_context=True)
+def product_sorting(context, products):
+    """
+    Renders the links for each product sort option.
+    """
+    sort_options = [(option[0], slugify(option[0])) for option in 
+                                        settings.SHOP_PRODUCT_SORT_OPTIONS]
+    querystring = context["request"].REQUEST.get("query", "")
+    if querystring:
+        querystring = "&query=" + quote(querystring)
+    else:
+        del sort_options[0]
+    context.update({"selected_option": getattr(products, "sort"), 
+                    "sort_options": sort_options, "querystring": querystring})
+    return context
+
+
+@register.inclusion_tag("shop/product_paging.html", takes_context=True)
+def product_paging(context, products):
+    """
+    Renders the links for each page number in a paginated list of products.
+    """
+    settings = context["settings"]
+    querystring = ""
+    page_range = products.paginator.page_range
+    page_links = settings.SHOP_MAX_PAGING_LINKS
+    if len(page_range) > page_links:
+        start = min(products.paginator.num_pages - page_links, 
+            max(0, products.number - (page_links / 2) - 1))
+        page_range = page_range[start:start + page_links]
+    context.update({"products": products, "querystring": querystring, 
+                    "page_range": page_range})
+    return context
+
+@register.inclusion_tag("shop/related_products.html", takes_context=True)
+def related_products_by_keywords(context, product):
+    """
+    Using the keywords rather than the explicit related products.
+    """
+    from cartridge.shop.models import Product
+    keyword_ids = product.keywords.values_list('keyword', flat=True)
+    products = Product.objects.published().filter(in_stock=True).exclude(pk=product.pk).filter(keywords__keyword__in=keyword_ids)
+    context.update({
+        "related_products": products,
+        })
+    return context

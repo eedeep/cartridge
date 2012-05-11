@@ -37,6 +37,14 @@ def recalculate_discount(request):
         except KeyError:
             pass
 
+def set_discount(request, discount_total):
+    """
+    Stores the discount total the session.
+    """
+    if discount_total == None:
+        if request.session.has_key("discount_total"): del request.session["discount_total"]
+    else:
+        request.session["discount_total"] = discount_total
 
 def set_shipping(request, shipping_type, shipping_total):
     """
@@ -69,3 +77,29 @@ def set_locale():
                 "configure the SHOP_CURRENCY_LOCALE setting in your settings "
                 "module.")
         raise ImproperlyConfigured(msg % currency_locale)
+
+def make_sku_safe(sku):
+    """
+    XXX: This is is not needed and should be *only* in the product upload
+         I have added the decimal safety hack until we replace the product upload
+         with a better system at which time this should be removed - MB
+    """
+    clean_sku = sku.replace("/", "_")
+    if clean_sku.endswith('.0'):
+        print "**ERROR** Decimal value found in xlsx file in sku %s" % clean_sku
+        clean_sku = clean_sku.split('.')[0]
+    return clean_sku
+
+
+def render_to_pdf(template_src, context_dict):
+    """ Courtesy: http://stackoverflow.com/questions/1377446/html-to-pdf-for-a-django-site """
+    template = get_template(template_src)
+    context = Context(context_dict)
+    html  = template.render(context)
+    result = StringIO.StringIO()
+
+    pdf = pisa.pisaDocument(StringIO.StringIO(html.encode("ISO-8859-1")), result)
+    if not pdf.err:
+         return HttpResponse(result.getvalue(), mimetype='application/pdf')
+    return HttpResponse('We had some errors<pre>%s</pre>' % escape(html))
+
