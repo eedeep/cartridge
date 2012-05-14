@@ -22,7 +22,6 @@ class OptionField(CharField):
         defaults.update(kwargs)
         super(OptionField, self).__init__(*args, **defaults)
 
-
 class MoneyField(DecimalField):
     """
     A field for a monetary amount. Provide the default size and

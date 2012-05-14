@@ -330,6 +330,17 @@ class ProductVariation(Priced, ProductVariationAbstract):
     def save(self, *args, **kwargs):
         """
         Use the variation's ID as the SKU when the variation is first
+        created.
+        """
+        super(ProductVariation, self).save(*args, **kwargs)
+        if not self.sku:
+            self.sku = self.id
+            self.save()
+
+    #ported save function from oz cottonon, not working due to get_filters change
+    def save_oz(self, *args, **kwargs):
+        """
+        Use the variation's ID as the SKU when the variation is first
         created and set the variation's image to be the first image of
         the product if no image is chosen for the variation.
         """
