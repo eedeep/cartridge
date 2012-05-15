@@ -18,7 +18,6 @@ from mezzanine.pages.models import Page
 
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
-from cartridge_extras.models import ShippingOption #TODO, when DiscountCode oz customisations extracted, remove this import
 
 import logging
 splog = logging.getLogger('stockpool.log')
@@ -276,8 +275,9 @@ class ProductVariationMetaclass(ModelBase):
     ``SHOP_PRODUCT_OPTIONS`` setting.
     """
     def __new__(cls, name, bases, attrs):
-        for option in settings.SHOP_OPTION_TYPE_CHOICES:
-            attrs["option%s" % option[0]] = fields.OptionField(option[1])
+        if not ("Meta" in attrs and getattr(attrs["Meta"], "proxy", False)): #skip proxy models
+            for option in settings.SHOP_OPTION_TYPE_CHOICES:
+                attrs["option%s" % option[0]] = fields.OptionField(option[1])
         args = (cls, name, bases, attrs)
         return super(ProductVariationMetaclass, cls).__new__(*args)
 
@@ -900,6 +900,27 @@ class DiscountCodeUniqueAbstract(models.Model):
 
     class Meta:
         abstract = True
+
+
+
+from countries.models import Country
+
+#custom CO class, depends on cartridge MoneyField
+class ShippingOption(models.Model):
+    title = models.CharField(_("Title"), max_length=200)
+    price = fields.MoneyField(_("Price"))
+    countries = models.ManyToManyField(Country, blank=True, related_name="availablecountries")
+
+    valid_from = models.DateTimeField(_("Valid from"), blank=True, null=True)
+    valid_to = models.DateTimeField(_("Valid to"), blank=True, null=True)
+    active = models.BooleanField(_("Active"), default=True)
+
+    class Meta:
+        ordering = ['price',]
+
+    def __unicode__(self):
+        return "%s: $%s"%(self.title, self.price)
+
 
 #TODO: This is a stock cartridge class that has some CO customisations
 #      One day shift out of stock cartridge.
