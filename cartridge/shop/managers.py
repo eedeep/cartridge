@@ -88,12 +88,13 @@ class ProductVariationManager(Manager):
                 # Explicitly specify SKU, if any options available
                 # Since the SKU is the primary key, that overwrites it
                 option = None
+                # XXX: Refactor for handling sku creation with colour option.
                 for option in ('option1', 'option2'):
                     if option in variation:
                         from cartridge.shop.models import Product
                         product = Product.objects.get(id=self.core_filters['product__id'])
-                        if product.actual_item_code:
-                            variation['sku'] = '%s-%s' % (product.actual_item_code, variation[option])
+                        if product.master_item_code:
+                            variation['sku'] = '%s-%s' % (product.master_item_code, variation[option])
                             break
 
                 lookup = dict(variation)

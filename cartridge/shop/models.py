@@ -140,9 +140,7 @@ class Product(Displayable, Priced, RichText):
 
     available = models.BooleanField(_("Available for purchase"),
                                     default=False)
-    master_item_code = CharField(_("Master Item Code"), blank=True, max_length=100)
-    actual_item_code = CharField(_("Actual Item code"), blank=True, max_length=100, unique=True)
-    colour = CharField(_("Product Colour"), blank=True, max_length=100)
+    master_item_code = CharField(_("Master Item Code"), blank=False, max_length=64)
     image = CharField(max_length=100, blank=True, null=True)
     categories = models.ManyToManyField("Category", blank=True,
                                         related_name="products")
@@ -156,7 +154,7 @@ class Product(Displayable, Priced, RichText):
     ranking = models.IntegerField(default=500)
 
     objects = DisplayableManager()
-    search_fields = ("actual_item_code",)
+    search_fields = ("master_item_code",)
 
     class Meta:
         verbose_name = _("Product")
@@ -164,7 +162,7 @@ class Product(Displayable, Priced, RichText):
         ordering = ("ranking", "title")
 
     def __unicode__(self):
-        return '%s :: %s (%s)' % (self.title, self.actual_item_code, self.colour)
+        return '%s :: %s' % (self.title, self.master_item_code)
 
     @models.permalink
     def get_absolute_url(self):
@@ -303,11 +301,11 @@ class ProductVariation(Priced, ProductVariationAbstract):
     """
 
     product = models.ForeignKey("Product", related_name="variations")
-    sku = fields.SKUField(unique=True)
     num_in_stock = models.IntegerField(_("Number in stock"), blank=True,
                                        null=True)
     default = models.BooleanField(_("Default"))
-    image = models.ForeignKey("ProductImage", null=True, blank=True)
+    image = models.ForeignKey("ProductImage", verbose_name=_("Image"),
+                              null=True, blank=True)
 
     objects = managers.ProductVariationManager()
 
@@ -474,6 +472,13 @@ class ProductVariation(Priced, ProductVariationAbstract):
             self.num_in_stock_pool = 0
             self.num_in_stock -= amount
             splog.info('Case-3 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
+
+    @property
+    def sku(self):
+        """
+        SKU is derived from the ``product.master_item_code`` and selected options
+        """    
+        return "%s-%s-%s" % (self.product.master_item_code, self.options['size'], self.options['colour'])
 
 
 class Order(models.Model):
