@@ -140,7 +140,7 @@ class Product(Displayable, Priced, RichText):
 
     available = models.BooleanField(_("Available for purchase"),
                                     default=False)
-    master_item_code = CharField(_("Master Item Code"), blank=False, max_length=64)
+    master_item_code = CharField(_("Master Item Code"), blank=False, max_length=64, unique=True)
     image = CharField(max_length=100, blank=True, null=True)
     categories = models.ManyToManyField("Category", blank=True,
                                         related_name="products")
@@ -175,20 +175,30 @@ class Product(Displayable, Priced, RichText):
         Use the top category as a cue in most situations, but special business rules for 
         Shop, Typo, Kids and Sale categories, and when the only size available is solid or osfa.
         """
-        cats = self.categories.exclude(title__in=["Shop", "Sale"]).filter(parent=None) #ignore shop and sale categories when predicting size chart
+        #ignore shop and sale categories when predicting size chart
+        cats = self.categories.exclude(title__in=["Shop", "Sale"]).filter(parent=None) 
         sizes = self.variations.all().values_list("option1", flat=True)
-        if len(sizes)==1 and any(x in ["SOLID", "OSFA"] for x in sizes): #some sizes have no chart
+        
+        #some sizes have no chart
+        if len(sizes)==1 and any(x in ["SOLID", "OSFA"] for x in sizes):             
             return None
 
         #if "Thongs" in self.title: return "shoes"
-        if cats.count()>0: #usually return top category
-            if cats[0].title in ["TYPO"]: return None #Typo products dont have size charts
-            if cats[0].title in ["KIDS"] and self.categories.filter(title="FOOTWEAR").count()>0: return "kidsfootwear" #product in Kids/Accessories/Footwear should show appropriate size guide
+        #usually return top category
+        if cats.count()>0:             
+            #Typo products dont have size charts
+            # TODO: This should be moved to the settings file as excluded from size_filters
+            if cats[0].title in ["TYPO"]: 
+                return None 
+            #product in Kids/Accessories/Footwear should show appropriate size guide
+            if cats[0].title in ["KIDS"] and self.categories.filter(title="FOOTWEAR").count()>0: 
+                return "kidsfootwear"             
             return cats[0]
         else: 
             subcats=self.categories.filter(title="SALE").exclude(parent=None)
             if subcats.count()>0:
-                return subcats[0].parent.title #Sale items return parent title eg MENS/SALE returns MENS.
+                #Sale items return parent title eg MENS/SALE returns MENS.
+                return subcats[0].parent.title 
         return "default"
 
 
@@ -332,7 +342,8 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         super(ProductVariation, self).save(*args, **kwargs)
         if not self.sku:
-            self.sku = self.id
+            # XXX: How will I know which option is which...This should be a dict or the like. 
+            size, style = self.options()[0], self.options()[1]
             self.save()
 
     #ported save function from oz cottonon, not working due to get_filters change
@@ -478,8 +489,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         SKU is derived from the ``product.master_item_code`` and selected options
         """    
-        return "%s-%s-%s" % (self.product.master_item_code, self.options['size'], self.options['colour'])
-
+        return "%s-%s-%s" % (self.product.master_item_code, self.options()[0], self.options()[1])
 
 class Order(models.Model):
 
