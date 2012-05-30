@@ -40,7 +40,7 @@ class CategoryAdmin(PageAdmin):
 class ProductVariationAdmin(admin.TabularInline):
     verbose_name_plural = _("Current variations")
     model = ProductVariation
-    fields = ("sku", "default", "num_in_stock_pool", "num_in_stock", "unit_price", "sale_price", 
+    fields = ("default", "num_in_stock_pool", "num_in_stock", "unit_price", "sale_price", 
         "sale_from", "sale_to", "image")
     if not settings.DEBUG:
         readonly_fields = ("num_in_stock", "num_in_stock_pool")
@@ -78,8 +78,7 @@ class ProductAdmin(DisplayableAdmin):
     list_editable = ("status", "available")
     list_filter = ("status", "available", "categories")
     filter_horizontal = ("categories", "related_products", "upsell_products")
-    search_fields = ("title", "content", "categories__title",
-                     "variations__sku")
+    search_fields = ("title", "content", "categories__title")
     inlines = (ProductImageAdmin, ProductVariationAdmin)
     form = ProductAdminForm
     fieldsets = product_fieldsets
