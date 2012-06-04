@@ -335,17 +335,6 @@ class ProductVariation(Priced, ProductVariationAbstract):
                                            getattr(self, field.name)))
         return ("%s %s" % (unicode(self.product), ", ".join(options))).strip()
 
-    def save(self, *args, **kwargs):
-        """
-        Use the variation's ID as the SKU when the variation is first
-        created.
-        """
-        super(ProductVariation, self).save(*args, **kwargs)
-        if not self.sku:
-            # XXX: How will I know which option is which...This should be a dict or the like. 
-            size, style = self.options()[0], self.options()[1]
-            self.save()
-
     #ported save function from oz cottonon, not working due to get_filters change
     def save_oz(self, *args, **kwargs):
         """
@@ -353,6 +342,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
         created and set the variation's image to be the first image of
         the product if no image is chosen for the variation.
         """
+        #TODO: revisit RE: once we have images.
         #if variation is on sale, reapply the Sale discount
         if self.on_sale(): 
             sale = None
@@ -377,9 +367,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
             super(ProductVariation, self).save(*args, **kwargs)
         self.product.save() # Update product stock.
         save = False
-        if not self.sku:
-            self.sku = self.id
-            save = True
+
         if not self.image:
             images = self.product.images.all()
             # CO hack. The ProductImage with description 'hero' in it is the default image to be displayed
@@ -389,6 +377,10 @@ class ProductVariation(Priced, ProductVariationAbstract):
                 save = True
             elif len(images[:1]) == 1:
                 self.image = images[0]
+                save = True
+            else:
+                # There is no image set the status draft
+                self.status = 2
                 save = True
         if save:
             self.save()
@@ -488,7 +480,8 @@ class ProductVariation(Priced, ProductVariationAbstract):
     def sku(self):
         """
         SKU is derived from the ``product.master_item_code`` and selected options
-        """    
+        """
+        self.options
         return "%s-%s-%s" % (self.product.master_item_code, self.options()[0], self.options()[1])
 
 class Order(models.Model):

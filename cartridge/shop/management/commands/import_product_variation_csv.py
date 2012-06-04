@@ -93,8 +93,12 @@ def style_and_size_from_sku(sku):
         raise InvalidProductCode
 
     master_item_code = sku_list[0]
+
     style = sku_list[1]
     size = sku_list[2]
+    if style or size is None or "":
+        raise InvalidProductCode
+
     style, created = ProductOption.objects.get_or_create(type=2, name=style)
     if created:
         style.save()

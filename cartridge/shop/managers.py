@@ -4,9 +4,9 @@ from datetime import datetime, timedelta
 
 from django.db.models import Manager, Q, F
 from django.utils.datastructures import SortedDict
+from django.core.exceptions import ObjectDoesNotExist
 
 from mezzanine.conf import settings
-
 
 class CartManager(Manager):
 
@@ -146,6 +146,18 @@ class ProductVariationManager(Manager):
             if save:
                 variation.save()
 
+    def get_by_sku(self, sku):
+        """
+        Given the sku is compiled from the ``master_item_code`` and the options
+        This manager will get a Variation by ``master_item_code``-``style``-``size``
+        as a string. Mostly a response to replacing the sku with a property and allowing
+        a drop in replacement for get by ``sku``
+        """
+        mCode, style, size = sku.split("-")
+        if not mCode or not style or not size:
+            raise ObjectDoesNotExist
+        return self.get(product__master_item_code=mCode, option1=size, option2=style)
+            
 
 class ProductActionManager(Manager):
 
