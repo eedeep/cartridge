@@ -299,6 +299,8 @@ class ProductVariationAbstract(models.Model):
     num_in_stock_pool = models.PositiveIntegerField(_("Number in Stock Pool"),
                                             blank=True,
                                             default=0)
+    # Store the RMS sellcode on the product variation                                            
+    sellcode_code = models.CharField(max_length=32)
  
     class Meta:
         abstract = True
@@ -334,56 +336,6 @@ class ProductVariation(Priced, ProductVariationAbstract):
                 options.append("%s: %s" % (unicode(field.verbose_name),
                                            getattr(self, field.name)))
         return ("%s %s" % (unicode(self.product), ", ".join(options))).strip()
-
-    #ported save function from oz cottonon, not working due to get_filters change
-    def save_oz(self, *args, **kwargs):
-        """
-        Use the variation's ID as the SKU when the variation is first
-        created and set the variation's image to be the first image of
-        the product if no image is chosen for the variation.
-        """
-        #TODO: revisit RE: once we have images.
-        #if variation is on sale, reapply the Sale discount
-        if self.on_sale(): 
-            sale = None
-            if self.sale_id:
-                try:
-                    sale = Sale.objects.get(id=self.sale_id)
-                except ObjectDoesNotExist:
-                    sale = None
-            if sale:
-                extra_filter, sale_price = sale.get_filters()
-                update = {"sale_id": sale.id,
-                              "sale_price": sale_price,
-                              "sale_to": sale.valid_to,
-                              "sale_from": sale.valid_from}
-                self.__dict__.update(**update)
-
-            try:
-                super(ProductVariation, self).save(*args, **kwargs)
-            except Warning, err:
-                pass
-        else:
-            super(ProductVariation, self).save(*args, **kwargs)
-        self.product.save() # Update product stock.
-        save = False
-
-        if not self.image:
-            images = self.product.images.all()
-            # CO hack. The ProductImage with description 'hero' in it is the default image to be displayed
-            image = images.filter(description__icontains='hero')
-            if image:
-                self.image = image[0]
-                save = True
-            elif len(images[:1]) == 1:
-                self.image = images[0]
-                save = True
-            else:
-                # There is no image set the status draft
-                self.status = 2
-                save = True
-        if save:
-            self.save()
 
     def get_absolute_url(self):
         return self.product.get_absolute_url()
@@ -481,8 +433,22 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         SKU is derived from the ``product.master_item_code`` and selected options
         """
-        self.options
         return "%s-%s-%s" % (self.product.master_item_code, self.options()[0], self.options()[1])
+
+    @property
+    def master_item_code(self):
+        """
+        Convenience property for getting the parent ``Product`` master_item_code
+        """
+        return self.product.master_item_code
+
+    @property
+    def actual_item_code(self):
+        """
+        Convenience property for getting the legacy actual_item_code
+        This code is simply made up of the master_item_code and the style option
+        """     
+        return "%s-%s" % (self.master_item_code, self.options()[0]) 
 
 class Order(models.Model):
 
