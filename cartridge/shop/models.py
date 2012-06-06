@@ -3,7 +3,6 @@ from datetime import datetime
 from decimal import Decimal, ROUND_UP
 from operator import iand, ior
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.db.models import CharField, Q
 from django.db.models.base import ModelBase
@@ -300,7 +299,7 @@ class ProductVariationAbstract(models.Model):
                                             blank=True,
                                             default=0)
     # Store the RMS sellcode on the product variation                                            
-    sellcode_code = models.CharField(max_length=32)
+    sellcode_code = models.CharField(max_length=32, blank=True, null=True, unique=True)
  
     class Meta:
         abstract = True
