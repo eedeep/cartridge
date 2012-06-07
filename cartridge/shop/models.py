@@ -9,12 +9,15 @@ from django.db.models import CharField, Q
 from django.db.models.base import ModelBase
 from django.utils.translation import ugettext_lazy as _
 from _mysql_exceptions import OperationalError
+from django.utils import simplejson
 
 from mezzanine.conf import settings
 from mezzanine.core.managers import DisplayableManager, PublishedManager
 from mezzanine.core.models import Displayable, RichText, Orderable, CONTENT_STATUS_DRAFT, CONTENT_STATUS_CHOICES
 from mezzanine.generic.fields import RatingField
 from mezzanine.pages.models import Page
+
+from taggit.managers import TaggableManager
 
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
@@ -153,6 +156,7 @@ class Product(Displayable, Priced, RichText):
     in_stock = models.BooleanField(_("In Stock"), default=False)
     ranking = models.IntegerField(default=500)
 
+    tags = TaggableManager()
     objects = DisplayableManager()
     search_fields = ("master_item_code",)
 
@@ -167,6 +171,30 @@ class Product(Displayable, Priced, RichText):
     @models.permalink
     def get_absolute_url(self):
         return ("shop_product", (), {"slug": self.slug})
+
+    @property
+    def available_sizes(self): #TODO: potentially denormalise this onto the model
+        sizes = self.variations.all().values_list("option1", flat=True)
+        return sizes
+
+    @property
+    def available_colours(self): #TODO: potentially denormalise this onto the model
+        colours = self.variations.all().values_list("option2", flat=True)
+        return colours 
+
+    #XXX replace these two methods with tastypie calls
+    def colours_json(self):
+        colours = self.variations.all().values_list("option2", flat=True)
+        json = []
+        for c in colours: json.append({"colour":c})
+        return simplejson.dumps(json)
+
+    def sizes_json(self):
+        cs = self.variations.all().values_list("option1", flat=True)
+        json = []
+        for c in cs: json.append({"size":c})
+        return simplejson.dumps(json)
+
 
     @property
     def size_chart(self):
