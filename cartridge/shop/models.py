@@ -328,7 +328,7 @@ class ProductVariationAbstract(models.Model):
                                             blank=True,
                                             default=0)
     # Store the RMS sellcode on the product variation                                            
-    sellcode_code = models.CharField(max_length=32)
+    # sellcode_code = models.CharField(max_length=32)
  
     class Meta:
         abstract = True
