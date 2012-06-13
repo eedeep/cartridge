@@ -16,7 +16,7 @@ from mezzanine.core.models import Displayable, RichText, Orderable, CONTENT_STAT
 from mezzanine.generic.fields import RatingField
 from mezzanine.pages.models import Page
 
-from taggit.managers import TaggableManager
+from cartridge.taggit.managers import TaggableManager
 
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
