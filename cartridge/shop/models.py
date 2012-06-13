@@ -3,7 +3,6 @@ from datetime import datetime
 from decimal import Decimal, ROUND_UP
 from operator import iand, ior
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.db.models import CharField, Q
 from django.db.models.base import ModelBase
@@ -214,33 +213,33 @@ class Product(Displayable, Priced, RichText):
     def size_chart(self):
         """
         Return a slug that suggests which size chart to use for this product.
-        Use the top category as a cue in most situations, but special business rules for 
+        Use the top category as a cue in most situations, but special business rules for
         Shop, Typo, Kids and Sale categories, and when the only size available is solid or osfa.
         """
         #ignore shop and sale categories when predicting size chart
-        cats = self.categories.exclude(title__in=["Shop", "Sale"]).filter(parent=None) 
+        cats = self.categories.exclude(title__in=["Shop", "Sale"]).filter(parent=None)
         sizes = self.variations.all().values_list("option1", flat=True)
-        
+
         #some sizes have no chart
-        if len(sizes)==1 and any(x in ["SOLID", "OSFA"] for x in sizes):             
+        if len(sizes)==1 and any(x in ["SOLID", "OSFA"] for x in sizes):
             return None
 
         #if "Thongs" in self.title: return "shoes"
         #usually return top category
-        if cats.count()>0:             
+        if cats.count()>0:
             #Typo products dont have size charts
             # TODO: This should be moved to the settings file as excluded from size_filters
-            if cats[0].title in ["TYPO"]: 
-                return None 
+            if cats[0].title in ["TYPO"]:
+                return None
             #product in Kids/Accessories/Footwear should show appropriate size guide
-            if cats[0].title in ["KIDS"] and self.categories.filter(title="FOOTWEAR").count()>0: 
-                return "kidsfootwear"             
+            if cats[0].title in ["KIDS"] and self.categories.filter(title="FOOTWEAR").count()>0:
+                return "kidsfootwear"
             return cats[0]
-        else: 
+        else:
             subcats=self.categories.filter(title="SALE").exclude(parent=None)
             if subcats.count()>0:
                 #Sale items return parent title eg MENS/SALE returns MENS.
-                return subcats[0].parent.title 
+                return subcats[0].parent.title
         return "default"
 
 
@@ -255,7 +254,7 @@ class Product(Displayable, Priced, RichText):
         if default.image:
             self.image = default.image.file.name
         self.save()
-        
+
     def save(self, *args, **kwargs):
         # Update in stock flag.
         # XXX: stockpool update needed
@@ -335,17 +334,17 @@ class ProductVariationMetaclass(ModelBase):
 
 class ProductVariationAbstract(models.Model):
     """
-    Product Variation abstract used to extend the 
+    Product Variation abstract used to extend the
     cartridge base functionality
     """
-    
+
     # Stock pool, Reserved stock for online store
     num_in_stock_pool = models.PositiveIntegerField(_("Number in Stock Pool"),
                                             blank=True,
                                             default=0)
-    # Store the RMS sellcode on the product variation                                            
-    # sellcode_code = models.CharField(max_length=32)
- 
+    # Store the RMS sellcode on the product variation
+    sellcode_code = models.CharField(max_length=32, blank=True, null=True, unique=True)
+
     class Meta:
         abstract = True
 
@@ -467,7 +466,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
                 self.num_in_stock = settings.STOCK_THRESHOLD
                 splog.info('Case-2 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
         else:
-            # Take from num_in_stock_pool first then num_in_stock 
+            # Take from num_in_stock_pool first then num_in_stock
             self.num_in_stock_pool = 0
             self.num_in_stock -= amount
             splog.info('Case-3 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
@@ -491,8 +490,8 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         Convenience property for getting the legacy actual_item_code
         This code is simply made up of the master_item_code and the style option
-        """     
-        return "%s-%s" % (self.master_item_code, self.options()[0]) 
+        """
+        return "%s-%s" % (self.master_item_code, self.options()[0])
 
 class Order(models.Model):
 
@@ -704,6 +703,9 @@ class Cart(models.Model):
         """
         Returns the upsell products for each of the items in the cart.
         """
+        # HACK: Get the cart back up and running. Comment this out because
+        # sku no longer exists!
+        return []
         cart = Product.objects.filter(variations__sku__in=self.skus())
         published_products = Product.objects.published()
         for_cart = published_products.filter(upsell_products__in=cart)
@@ -986,7 +988,7 @@ class DiscountCode(Discount, DiscountCodeUniqueAbstract):
             if products.filter(variations__sku=item.sku).count()>0: #apply a discount to this product
                 discount += self.calculate(item.total_price)
         discount = discount.quantize(Decimal('0.01'), rounding=ROUND_UP)
-        return discount    
+        return discount
 
     class Meta:
         verbose_name = _("Discount code")
@@ -1045,7 +1047,7 @@ class CategoryPage(models.Model):
 
     def __unicode__(self):
         return self.name
-    
+
     def save(self, *args, **kwargs):
         if self.publish_date is None:
             self.publish_date = datetime.now()
