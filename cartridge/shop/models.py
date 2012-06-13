@@ -16,7 +16,7 @@ from mezzanine.core.models import Displayable, RichText, Orderable, CONTENT_STAT
 from mezzanine.generic.fields import RatingField
 from mezzanine.pages.models import Page
 
-from taggit.managers import TaggableManager
+from cartridge.taggit.managers import TaggableManager
 
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
@@ -181,6 +181,11 @@ class Product(Displayable, Priced, RichText):
         colours = self.variations.all().values_list("option2", flat=True)
         return colours 
 
+    @property
+    def available_brands(self): #TODO: potentially denormalise
+        #brands = TagFacet.objects.filter()
+        return []
+
     #XXX replace these two methods with tastypie calls
     def colours_json(self):
         colours = self.variations.all().values_list("option2", flat=True)
@@ -194,6 +199,15 @@ class Product(Displayable, Priced, RichText):
         for c in cs: json.append({"size":c})
         return simplejson.dumps(json)
 
+    def brands_json(self):
+        json = self.tags.filter(tagfacet__name="brand").values_list("id", "display_name", flat=True)
+        import pdb; pdb.set_trace()
+        return simplejson.dumps(json)
+
+    def styles_json(self):
+        #json = ""
+        json = self.tags.filter(tagfacet__name="style").values_list("id", "display_name", flat=True)
+        return simplejson.dumps(json)
 
     @property
     def size_chart(self):
@@ -290,7 +304,9 @@ class ProductOption(models.Model):
     """
     type = models.IntegerField(_("Type"),
                                choices=settings.SHOP_OPTION_TYPE_CHOICES)
-    name = fields.OptionField(_("Name"))
+    display_name = fields.CharField(blank=True, max_length=100) #eg "red"
+    name = fields.OptionField(_("Name")) #eg an RMS colour code like 04
+
     ranking = models.IntegerField(default=100)
 
     objects = managers.ProductOptionManager()
