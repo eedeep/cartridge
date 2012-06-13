@@ -201,7 +201,8 @@ class Product(Displayable, Priced, RichText):
 
     def brands_json(self):
         json = self.tags.filter(tagfacet__name="brand").values_list("id", "display_name", flat=True)
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
+        #json = []
         return simplejson.dumps(json)
 
     def styles_json(self):
