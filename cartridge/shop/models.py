@@ -17,6 +17,7 @@ from mezzanine.generic.fields import RatingField
 from mezzanine.pages.models import Page
 
 from cartridge.taggit.managers import TaggableManager
+from cartridge.taggit.models import Tag, TagFacet
 
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
@@ -183,8 +184,13 @@ class Product(Displayable, Priced, RichText):
 
     @property
     def available_brands(self): #TODO: potentially denormalise
-        #brands = TagFacet.objects.filter()
-        return []
+        results = self.tags.filter(tagfacet__name=settings.FACET_BRAND).values_list("name", flat=True)
+        return results
+
+    @property
+    def available_styles(self): #TODO: potentially denormalise
+        results = self.tags.filter(tagfacet__name=settings.FACET_STYLE).values_list("name", flat=True)
+        return results
 
     #XXX replace these two methods with tastypie calls
     def colours_json(self):
@@ -201,7 +207,6 @@ class Product(Displayable, Priced, RichText):
 
     def brands_json(self):
         json = self.tags.filter(tagfacet__name="brand").values_list("id", "display_name", flat=True)
-        #import pdb; pdb.set_trace()
         #json = []
         return simplejson.dumps(json)
 
