@@ -174,12 +174,12 @@ class Product(Displayable, Priced, RichText):
 
     @property
     def available_sizes(self): #TODO: potentially denormalise this onto the model
-        sizes = self.variations.all().values_list("option1", flat=True)
+        sizes = self.variations.all().values_list("option%i"%settings.OPTION_SIZE, flat=True)
         return sizes
 
     @property
     def available_colours(self): #TODO: potentially denormalise this onto the model
-        colours = self.variations.all().values_list("option2", flat=True)
+        colours = self.variations.all().values_list("option%i"%settings.OPTION_STYLE, flat=True)
         return colours 
 
     @property
