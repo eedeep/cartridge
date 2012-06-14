@@ -74,7 +74,7 @@ class AddProductForm(forms.Form):
                if values:
                    kwargs = {"label":option_labels[i],
                            "choices":make_choices(values)}
-                   if name == "option1": #use radio for size
+                   if name == "option%s"%settings.OPTION_SIZE: #use radio for size
                         kwargs["widget"] = forms.RadioSelect
                    field = forms.ChoiceField(**kwargs)
                    self.fields[name] = field
