@@ -22,6 +22,8 @@ from cartridge.taggit.models import Tag, TagFacet
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
 
+from multicurrency.utils import session_currency
+
 import logging
 splog = logging.getLogger('stockpool.log')
 
@@ -348,9 +350,6 @@ class ProductVariationAbstract(models.Model):
     num_in_stock_pool = models.PositiveIntegerField(_("Number in Stock Pool"),
                                             blank=True,
                                             default=0)
-    # Store the RMS sellcode on the product variation
-    sellcode_code = models.CharField(max_length=32, blank=True, null=True, unique=True)
-
     class Meta:
         abstract = True
 
@@ -362,6 +361,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
     """
 
     product = models.ForeignKey("Product", related_name="variations")
+    sku = fields.SKUField(unique=True)
     num_in_stock = models.IntegerField(_("Number in stock"), blank=True,
                                        null=True)
     default = models.BooleanField(_("Default"))
@@ -478,7 +478,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
             splog.info('Case-3 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
 
     @property
-    def sku(self):
+    def alternate_sku(self):
         """
         SKU is derived from the ``product.master_item_code`` and selected options
         """
@@ -591,6 +591,7 @@ class Order(models.Model):
             self.total += self.shipping_total
         if self.discount_total is not None:
             self.total -= self.discount_total
+        self.currency = session_currency(request)
         self.save()  # We need an ID before we can add related items.
         for item in request.cart:
             product_fields = [f.name for f in SelectedProduct._meta.fields]

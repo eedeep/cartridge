@@ -19,6 +19,9 @@ from cartridge.shop.models import Product, ProductVariation, Order
 from cartridge.shop.models import DiscountCode
 from cartridge.shop.utils import recalculate_discount, sign
 
+from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
+from multicurrency.utils import session_currency
+
 
 # Set up checkout handlers.
 handler = lambda s: import_dotted_path(s) if s else lambda *args: None
@@ -32,7 +35,7 @@ def product(request, slug, template="shop/product.html"):
     Display a product - convert the product variations to JSON as well as
     handling adding the product to either the cart or the wishlist.
     """
-    published_products = Product.objects.published(for_user=request.user)
+    published_products = MultiCurrencyProduct.objects.published(for_user=request.user)
     product = get_object_or_404(published_products, slug=slug)
     to_cart = (request.method == "POST" and
                request.POST.get("add_wishlist") is None)
@@ -57,7 +60,7 @@ def product(request, slug, template="shop/product.html"):
                 return response
     fields = [f.name for f in ProductVariation.option_fields()]
     fields += ["sku", "image_id"]
-    variations = product.variations.all()
+    variations = MultiCurrencyProductVariation.objects.filter(id__in=product.variations.all())
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
@@ -66,7 +69,7 @@ def product(request, slug, template="shop/product.html"):
         "images": product.images.all(),
         "variations": variations,
         "variations_json": variations_json,
-        "has_available_variations": any([v.has_price() for v in variations]),
+        "has_available_variations": any([v.has_price(session_currency(request)) for v in variations]),
         "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
     }
