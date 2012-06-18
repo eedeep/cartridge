@@ -182,7 +182,7 @@ class Product(Displayable, Priced, RichText):
     @property
     def available_colours(self): #TODO: potentially denormalise this onto the model
         colours = self.variations.all().values_list("option%i"%settings.OPTION_STYLE, flat=True)
-        return colours 
+        return colours
 
     @property
     def available_brands(self): #TODO: potentially denormalise
@@ -321,6 +321,13 @@ class ProductOption(models.Model):
 
     def __unicode__(self):
         return "%s: %s" % (self.get_type_display(), self.name)
+
+    @staticmethod
+    def colourName(code):
+        try:
+            return ProductOption.objects.get(name=code).display_name
+        except:
+            return code
 
     class Meta:
         verbose_name = _("Product option")
