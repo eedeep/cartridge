@@ -68,12 +68,14 @@ class AddProductForm(forms.Form):
             for f in ProductVariation.option_fields()])
         option_values = zip(*self._product.variations.filter(
             unit_price__isnull=False).values_list(*option_names))
+
         if option_values:
            for i, name in enumerate(option_names):
                values = filter(None, set(option_values[i]))
                if values:
-                   kwargs = {"label":option_labels[i],
-                           "choices":make_choices(values)}
+                   choices = make_choices(values)
+                   kwargs = {"label":(option_labels[i]),
+                             "choices":[(x[0], ProductOption.colourName(x[1])) for x in choices]}
                    if name == "option%s"%settings.OPTION_SIZE: #use radio for size
                         kwargs["widget"] = forms.RadioSelect
                    field = forms.ChoiceField(**kwargs)
