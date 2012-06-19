@@ -6,6 +6,10 @@ from locale import localeconv
 from re import match
 
 from django import forms
+from django.forms import widgets
+from django.utils.html import escape, conditional_escape
+from django.utils.encoding import StrAndUnicode, force_unicode
+
 from django.forms.models import BaseInlineFormSet, ModelFormMetaclass
 from django.forms.models import inlineformset_factory
 from django.utils.datastructures import SortedDict
@@ -26,6 +30,31 @@ ADD_PRODUCT_ERRORS = {
     "no_stock_quantity": _("The selected quantity is currently unavailable."),
 }
 
+
+class JoshRadioInput(widgets.RadioInput):
+    def render(self, name=None, value=None, attrs=None, choices=()):
+        name = name or self.name
+        value = value or self.value
+        attrs = attrs or self.attrs
+        if 'id' in self.attrs:
+            label_for = ' for="%s_%s"' % (self.attrs['id'], self.index)
+        else:
+            label_for = ''
+        choice_label = conditional_escape(force_unicode(self.choice_label))
+        return mark_safe(u'%s<label%s>%s</label>' % (self.tag(), label_for, choice_label))
+
+class JoshRadioFieldRenderer(widgets.RadioFieldRenderer):
+    def __iter__(self):
+        for i, choice in enumerate(self.choices):
+            yield JoshRadioInput(self.name, self.value, self.attrs.copy(), choice, i)
+
+    def __getitem__(self, idx):
+        choice = self.choices[idx] # Let the IndexError propogate
+        return JoshRadioInput(self.name, self.value, self.attrs.copy(), choice, idx)
+
+class JoshRadioSelect(forms.RadioSelect):
+    """ Custom widget to move labels outside size widget on product detail page """
+    renderer = JoshRadioFieldRenderer
 
 class AddProductForm(forms.Form):
     """
@@ -77,7 +106,7 @@ class AddProductForm(forms.Form):
                    kwargs = {"label":(option_labels[i]),
                              "choices":[(x[0], ProductOption.colourName(x[1])) for x in choices]}
                    if name == "option%s"%settings.OPTION_SIZE: #use radio for size
-                        kwargs["widget"] = forms.RadioSelect
+                        kwargs["widget"] = JoshRadioSelect
                    field = forms.ChoiceField(**kwargs)
                    self.fields[name] = field
 
