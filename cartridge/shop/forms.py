@@ -4,6 +4,7 @@ from datetime import datetime
 from itertools import dropwhile, takewhile
 from locale import localeconv
 from re import match
+from decimal import Decimal
 
 from django import forms
 from django.forms import widgets
@@ -23,6 +24,9 @@ from cartridge.shop import checkout
 from cartridge.shop.models import Product, ProductOption, ProductVariation
 from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
 from cartridge.shop.utils import make_choices, set_locale, set_shipping
+
+from multicurrency.templatetags.multicurrency_tags import local_currency
+
 
 ADD_PRODUCT_ERRORS = {
     "invalid_options": _("The selected options are currently unavailable."),
@@ -231,6 +235,39 @@ class FormsetForm(object):
             if filter_args is not None:
                 return self._fieldset(filter_func(*filter_args.groups()))
         raise AttributeError(name)
+
+class ShippingForm(forms.Form):
+    id = forms.ChoiceField()
+    def __init__(self, request, currency, data=None, initial=None):
+        super(ShippingForm, self).__init__(data=data, initial=initial)
+        self._shipping_options = settings.FREIGHT_COSTS.get(currency, None)
+        if self._shipping_options:
+            choices =  [(k,"%s (%s) %s"%(v[3], local_currency({"request":request}, v[0]), k.title())) for (k,v) in self._shipping_options.items()]
+        else:
+            choices = []
+        self.fields["id"] = forms.ChoiceField(choices=choices)
+        self._request = request
+        self._currency = currency
+
+    def set_shipping(self):
+        """
+        Assigns the session variables for the shipping options.
+        """
+        shipping_option = self.cleaned_data["id"]
+        discount_code = self._request.session.get("discount_code", "")
+        try:
+            discount = DiscountCode.objects.get_valid(code=discount_code, cart=self._request.cart)
+        except DiscountCode.DoesNotExist:
+            discount = None
+        if shipping_option is not None:
+            shipping_cost = Decimal(self._shipping_options.get(self.cleaned_data["id"])[0]) #from settings.FREIGHT_OPTIONS
+            set_shipping(self._request, shipping_option, shipping_cost)
+            if discount:
+                total = self._request.cart.calculate_discount(discount)
+                if discount.free_shipping:
+                    set_shipping(self._request, _("Free shipping"), 0)
+                self._request.session["free_shipping"] = discount.free_shipping
+                self._request.session["discount_total"] = total
 
 
 class DiscountForm(forms.ModelForm):

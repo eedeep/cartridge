@@ -14,13 +14,14 @@ from mezzanine.utils.importing import import_dotted_path
 from mezzanine.utils.views import render, set_cookie
 
 from cartridge.shop import checkout
-from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet
+from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, ShippingForm
 from cartridge.shop.models import Product, ProductVariation, Order
 from cartridge.shop.models import DiscountCode
 from cartridge.shop.utils import recalculate_discount, sign
 
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
 from multicurrency.utils import session_currency
+from multicurrency.templatetags.multicurrency_tags import local_currency
 
 
 # Set up checkout handlers.
@@ -127,6 +128,10 @@ def cart(request, template="shop/cart.html"):
     """
     cart_formset = CartItemFormSet(instance=request.cart)
     discount_form = DiscountForm(request, request.POST or None)
+    currency = session_currency(request)
+    shipping_option = request.session.get("shipping_type", None)
+    shipping_initial = {"id":shipping_option} if shipping_option else None
+    shipping_form = ShippingForm(request, currency, request.POST or shipping_initial)
     if request.method == "POST":
         valid = True
         if request.POST.get("update_cart"):
@@ -146,6 +151,9 @@ def cart(request, template="shop/cart.html"):
             valid = discount_form.is_valid()
             if valid:
                 discount_form.set_discount()
+            valid = shipping_form.is_valid()
+            if valid:
+                shipping_form.set_shipping()
         if valid:
             return redirect("shop_cart")
     context = {"cart_formset": cart_formset}
@@ -153,6 +161,7 @@ def cart(request, template="shop/cart.html"):
     if (settings.SHOP_DISCOUNT_FIELD_IN_CART and
         DiscountCode.objects.active().count() > 0):
         context["discount_form"] = discount_form
+    context["shipping_form"] = shipping_form
     return render(request, template, context)
 
 

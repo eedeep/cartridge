@@ -28,6 +28,14 @@ import logging
 splog = logging.getLogger('stockpool.log')
 
 
+#session values
+SESSION_SHIPPINGTYPE = "shipping_type"
+SESSION_SHIPPINGTOTAL = "shipping_total"
+SESSION_DISCOUNTCODE = "discount_code"
+SESSION_DISCOUNTTOTAL = "discount_total"
+
+
+
 class Category(Page, RichText):
     """
     A category of products on the website.
