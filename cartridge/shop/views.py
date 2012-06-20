@@ -60,7 +60,7 @@ def product(request, slug, template="shop/product.html"):
                 set_cookie(response, "wishlist", ",".join(skus))
                 return response
     fields = [f.name for f in ProductVariation.option_fields()]
-    fields += ["sku", "image_id"]
+    fields += ["sku", "image_id", "num_in_stock"]
     variations = MultiCurrencyProductVariation.objects.filter(id__in=product.variations.all())
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
