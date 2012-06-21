@@ -43,6 +43,7 @@ def set_discount(request, discount_total):
     """
     if discount_total == None:
         if request.session.has_key("discount_total"): del request.session["discount_total"]
+        if "discount_code" in request.session: del request.session["discount_code"]
     else:
         request.session["discount_total"] = discount_total
 

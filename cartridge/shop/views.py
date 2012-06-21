@@ -127,7 +127,9 @@ def cart(request, template="shop/cart.html"):
     Display cart and handle removing items from the cart.
     """
     cart_formset = CartItemFormSet(instance=request.cart)
-    discount_form = DiscountForm(request, request.POST or None)
+    discount_code = request.session.get("discount_code", None)
+    discount_initial = {"discount_code":discount_code} if discount_code else None
+    discount_form = DiscountForm(request, request.POST or discount_initial)
     currency = session_currency(request)
     shipping_option = request.session.get("shipping_type", None)
     shipping_initial = {"id":shipping_option} if shipping_option else None
