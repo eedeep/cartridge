@@ -25,6 +25,8 @@ from cartridge.shop.models import Product, ProductOption, ProductVariation
 from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
 from cartridge.shop.utils import make_choices, set_locale, set_shipping, set_discount
 
+from countries.models import Country
+
 from multicurrency.templatetags.multicurrency_tags import local_currency
 
 
@@ -406,6 +408,14 @@ class OrderForm(FormsetForm, DiscountForm):
         choices = make_choices(range(year, year + 21))
         self.fields["card_expiry_year"].choices = choices
 
+        # Display country field as a list
+        self.fields['billing_detail_country'] = forms.ChoiceField(
+            label=_('Country'),
+            choices=Country.objects.all().values_list('printable_name', 'printable_name'))
+        self.fields['shipping_detail_country'] = forms.ChoiceField(
+            label=_('Country'),
+            choices=Country.objects.all().values_list('printable_name', 'printable_name'))
+
     def clean_card_expiry_year(self):
         """
         Ensure the card expiry doesn't occur in the past.
@@ -420,6 +430,19 @@ class OrderForm(FormsetForm, DiscountForm):
         if year == now.year and month < now.month:
             raise forms.ValidationError(_("A valid expiry date is required."))
         return str(year)
+
+    def clean_billing_detail_country(self):
+        return self.check_country(self.cleaned_data['billing_detail_country'])
+
+    def clean_shipping_detail_country(self):
+        return self.check_country(self.cleaned_data['shipping_detail_country'])
+
+    def check_country(self, country):
+        try:
+            Country.objects.get(printable_name=country)
+        except:
+            raise forms.ValidationError('Country does not exist')
+        return country
 
     def clean(self):
         """
