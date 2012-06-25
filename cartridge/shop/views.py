@@ -23,6 +23,7 @@ from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVaria
 from multicurrency.utils import session_currency
 from multicurrency.templatetags.multicurrency_tags import local_currency
 
+from cottonon_shop.cybersource import Requires3DSecureVerification 
 
 # Set up checkout handlers.
 handler = lambda s: import_dotted_path(s) if s else lambda *args: None
@@ -167,6 +168,28 @@ def cart(request, template="shop/cart.html"):
     return render(request, template, context)
 
 
+def finalise_order(transaction_id, request, order, remember):
+    # Finalize order - ``order.complete()`` performs
+    # final cleanup of session and cart.
+    # ``order_handler()`` can be defined by the
+    # developer to implement custom order processing.
+    # Then send the order email to the customer.
+    order.transaction_id = transaction_id
+    order.complete(request)
+    order_handler(request, dict(), order)
+    checkout.send_order_email(request, order)
+    # Set the cookie for remembering address details
+    # if the "remember" checkbox was checked.
+    response = redirect("shop_complete")
+    if remember:
+        remembered = "%s:%s" % (sign(order.key), order.key)
+        set_cookie(response, "remember", remembered,
+                   secure=request.is_secure())
+    else:
+        response.delete_cookie("remember")
+    return response
+
+
 def checkout_steps(request):
     """
     Display the order form and handle processing of each step.
@@ -235,25 +258,22 @@ def checkout_steps(request):
                     checkout_errors.append(e)
                     if settings.SHOP_CHECKOUT_STEPS_CONFIRMATION:
                         step -= 1
+                except Requires3DSecureVerification as threed_exc:
+                    form.cleaned_data['encryption_key'] = threed_exc.get_xid()
+                    threed_txn = ThreeDSecureTransaction(
+                        card_and_billing_data=test.order_form.cleaned_data,
+                        order_id=order.id,
+                        pareq=threed_exc.get_pareq()
+                    )
+                    threed_txn.save()
+                    return threed_exc.get_redirect_response(threed_txn.transaction_slug)
                 else:
-                    # Finalize order - ``order.complete()`` performs
-                    # final cleanup of session and cart.
-                    # ``order_handler()`` can be defined by the
-                    # developer to implement custom order processing.
-                    # Then send the order email to the customer.
-                    order.transaction_id = transaction_id
-                    order.complete(request)
-                    order_handler(request, form, order)
-                    checkout.send_order_email(request, order)
-                    # Set the cookie for remembering address details
-                    # if the "remember" checkbox was checked.
-                    response = redirect("shop_complete")
-                    if form.cleaned_data.get("remember") is not None:
-                        remembered = "%s:%s" % (sign(order.key), order.key)
-                        set_cookie(response, "remember", remembered,
-                                   secure=request.is_secure())
-                    else:
-                        response.delete_cookie("remember")
+                    response = finalise_order(
+                        transaction_id,
+                        request,
+                        order,
+                        form.cleaned_data.get('remeber')
+                    )
                     return response
 
             # If any checkout errors, assign them to a new form and
