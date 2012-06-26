@@ -75,7 +75,7 @@ def product(request, slug, template="shop/product.html"):
         "has_available_variations": any([v.has_price(session_currency(request)) for v in variations]),
         "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
-    }
+        }
     return render(request, template, context)
 
 

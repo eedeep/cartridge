@@ -4,6 +4,7 @@ from django.conf.urls.defaults import patterns, url
 
 urlpatterns = patterns("cartridge.shop.views",
     url("^product/(?P<slug>.*)/$", "product", name="shop_product"),
+    url("^modal/(?P<slug>.*)/$", "product", {"template":"shop/product_modal.html"}, name="shop_product_modal"),
     url("^wishlist/$", "wishlist", name="shop_wishlist"),
     url("^cart/$", "cart", name="shop_cart"),
     url("^checkout/$", "checkout_steps", name="shop_checkout"),
