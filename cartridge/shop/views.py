@@ -24,6 +24,7 @@ from multicurrency.utils import session_currency
 from multicurrency.templatetags.multicurrency_tags import local_currency
 
 from cottonon_shop.cybersource import Requires3DSecureVerification 
+from cottonon_shop.models import ThreeDSecureTransaction
 
 # Set up checkout handlers.
 handler = lambda s: import_dotted_path(s) if s else lambda *args: None
@@ -261,7 +262,7 @@ def checkout_steps(request):
                 except Requires3DSecureVerification as threed_exc:
                     form.cleaned_data['encryption_key'] = threed_exc.get_xid()
                     threed_txn = ThreeDSecureTransaction(
-                        card_and_billing_data=test.order_form.cleaned_data,
+                        card_and_billing_data=form.cleaned_data,
                         order_id=order.id,
                         pareq=threed_exc.get_pareq()
                     )
