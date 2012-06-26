@@ -2,6 +2,8 @@
 Checkout process utilities.
 """
 
+from decimal import Decimal
+
 from django.utils.translation import ugettext as _
 from django.template.loader import get_template, TemplateDoesNotExist
 
@@ -92,27 +94,30 @@ def initial_order_data(request):
     return initial
 
 
+def _order_email_context(order):
+    """ Return the context with all info rendering an order receipt will need.
+    Used by send_order_email and export to PDF in admin """
+    order_context = {"order": order, "order_items": order.items.all()}
+    store_config = settings.STORE_CONFIGS[order.currency]
+    order_context["tax_type"] = store_config.tax_type
+    order_context["tax_amount"] = order.item_total * store_config.tax_rate
+    for fieldset in ("billing_detail", "shipping_detail"):
+        fields = [(f.verbose_name, getattr(order, f.name)) for f in
+            order._meta.fields if f.name.startswith(fieldset)]
+        order_context["order_%s_fields" % fieldset] = fields
+    return order_context
+
+
 def send_order_email(request, order):
     """
     Send order receipt email on successful order.
     """
     settings.use_editable()
-    order_context = {"order": order, "request": request,
-                     "order_items": order.items.all()}
-    order_context.update(order.details_as_dict())
-    try:
-        get_template("shop/email/order_receipt.html")
-    except TemplateDoesNotExist:
-        receipt_template = "email/order_receipt"
-    else:
-        receipt_template = "shop/email/order_receipt"
-        from warnings import warn
-        warn("Shop email receipt templates have moved from "
-             "templates/shop/email/ to templates/email/")
-    send_mail_template(settings.SHOP_ORDER_EMAIL_SUBJECT,
-        receipt_template, settings.SHOP_ORDER_FROM_EMAIL,
-        order.billing_detail_email, context=order_context,
-        fail_silently=settings.DEBUG)
+    order_context = _order_email_context(order)
+    order_context["request"] = request
+    send_mail_template(_("Order Receipt"), "shop/email/order_receipt",
+        settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
+        context=order_context)
 
 
 # Set up some constants for identifying each checkout step.
