@@ -409,12 +409,13 @@ class OrderForm(FormsetForm, DiscountForm):
         self.fields["card_expiry_year"].choices = choices
 
         # Display country field as a list
-        self.fields['billing_detail_country'] = forms.ChoiceField(
-            label=_('Country'),
-            choices=Country.objects.all().values_list('printable_name', 'printable_name'))
-        self.fields['shipping_detail_country'] = forms.ChoiceField(
-            label=_('Country'),
-            choices=Country.objects.all().values_list('printable_name', 'printable_name'))
+        if first:
+            self.fields['billing_detail_country'] = forms.ChoiceField(
+                label=_('Country'),
+                choices=Country.objects.all().values_list('printable_name', 'printable_name'))
+            self.fields['shipping_detail_country'] = forms.ChoiceField(
+                label=_('Country'),
+                choices=Country.objects.all().values_list('printable_name', 'printable_name'))
 
     def clean_card_expiry_year(self):
         """
