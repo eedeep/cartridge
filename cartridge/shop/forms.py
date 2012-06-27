@@ -412,10 +412,10 @@ class OrderForm(FormsetForm, DiscountForm):
         if first:
             self.fields['billing_detail_country'] = forms.ChoiceField(
                 label=_('Country'),
-                choices=Country.objects.all().values_list('printable_name', 'printable_name'))
+                choices=Country.objects.all().values_list('name', 'printable_name'))
             self.fields['shipping_detail_country'] = forms.ChoiceField(
                 label=_('Country'),
-                choices=Country.objects.all().values_list('printable_name', 'printable_name'))
+                choices=Country.objects.all().values_list('name', 'printable_name'))
 
     def clean_card_expiry_year(self):
         """
@@ -440,7 +440,7 @@ class OrderForm(FormsetForm, DiscountForm):
 
     def check_country(self, country):
         try:
-            Country.objects.get(printable_name=country)
+            Country.objects.get(name=country)
         except:
             raise forms.ValidationError('Country does not exist')
         return country
