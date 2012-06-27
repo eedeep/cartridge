@@ -232,32 +232,26 @@ class Product(Displayable, Priced, RichText):
         Use the top category as a cue in most situations, but special business rules for
         Shop, Typo, Kids and Sale categories, and when the only size available is solid or osfa.
         """
-        #ignore shop and sale categories when predicting size chart
-        cats = self.categories.exclude(title__in=["Shop", "Sale"]).filter(parent=None)
-        sizes = self.variations.all().values_list("option1", flat=True)
-
+        SIZE_CHARTS = ( #in order of preference
+                (None, ["typo",]),
+                ("mens-shoes", ["mens", "shoes",]),
+                ("kids-shoes", ["kids", "shoes",]),
+                ("kids", ["kids",]),
+                ("women", ["women",]),
+                ("men", ["men",]),
+                ("body", ["body",]),
+                ("rubi", ["rubi",]),
+                )
+        product_tags = self.tags.all().values_list("name", flat=True)
+        sizes = [x.upper() for x in self.available_sizes]
         #some sizes have no chart
         if len(sizes)==1 and any(x in ["SOLID", "OSFA"] for x in sizes):
             return None
-
-        #if "Thongs" in self.title: return "shoes"
-        #usually return top category
-        if cats.count()>0:
-            #Typo products dont have size charts
-            # TODO: This should be moved to the settings file as excluded from size_filters
-            if cats[0].title in ["TYPO"]:
-                return None
-            #product in Kids/Accessories/Footwear should show appropriate size guide
-            if cats[0].title in ["KIDS"] and self.categories.filter(title="FOOTWEAR").count()>0:
-                return "kidsfootwear"
-            return cats[0]
-        else:
-            subcats=self.categories.filter(title="SALE").exclude(parent=None)
-            if subcats.count()>0:
-                #Sale items return parent title eg MENS/SALE returns MENS.
-                return subcats[0].parent.title
+        #if the product has all the tags associated with this size chart, use that.
+        for size_chart, tags in SIZE_CHARTS:
+            if all(tag in product_tags for tag in tags):
+                return size_chart
         return "default"
-
 
     def copy_default_variation(self):
         """
