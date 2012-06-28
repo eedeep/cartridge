@@ -47,10 +47,13 @@ def set_discount(request, discount_total):
     else:
         request.session["discount_total"] = discount_total
 
-def set_shipping(request, shipping_type, shipping_total):
+def set_shipping(request, shipping_type=None, shipping_total=None):
     """
     Stores the shipping type and total in the session.
     """
+    if shipping_type == None or shipping_total == None:
+        if request.session.has_key("shipping_type"): del request.session["shipping_type"]
+        if request.session.has_key("shipping_total"): del request.session["shipping_total"]
     request.session["shipping_type"] = shipping_type
     request.session["shipping_total"] = shipping_total
 

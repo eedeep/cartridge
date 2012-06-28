@@ -134,6 +134,12 @@ def cart(request, template="shop/cart.html"):
     discount_form = DiscountForm(request, request.POST or discount_initial)
     currency = session_currency(request)
     shipping_option = request.session.get("shipping_type", None)
+    if shipping_option == None: #apply default shipping for this currency
+        shipping_option = settings.FREIGHT_DEFAULTS[currency]
+        shipping_form = ShippingForm(request, currency, {"id":shipping_option})
+        valid = shipping_form.is_valid()
+        shipping_form.set_shipping()
+
     shipping_initial = {"id":shipping_option} if shipping_option else None
     shipping_form = ShippingForm(request, currency, request.POST or shipping_initial)
     if request.method == "POST":

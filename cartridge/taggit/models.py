@@ -6,6 +6,14 @@ from django.template.defaultfilters import slugify as default_slugify
 from django.utils.translation import ugettext_lazy as _, ugettext
 
 
+try: #if south is installed, add a rule to ignore the fake manager field
+    from south.modelsinspector import add_ignored_fields
+    add_ignored_fields(["^taggit\.managers"])
+except ImportError:
+    pass
+
+
+
 class TagBase(models.Model):
     name = models.CharField(verbose_name=_('Name'), max_length=100)
     slug = models.SlugField(verbose_name=_('Slug'), unique=True, max_length=100)
