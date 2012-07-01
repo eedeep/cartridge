@@ -24,6 +24,12 @@ from cartridge.shop.regexinv import invert
 
 from multicurrency.utils import session_currency
 
+try: #if south is installed, add a rule to ignore the fake manager field
+    from south.modelsinspector import add_ignored_fields
+    add_ignored_fields(["^cartridge\.taggit\.managers"])
+except ImportError:
+    pass
+
 import logging
 splog = logging.getLogger('stockpool.log')
 
