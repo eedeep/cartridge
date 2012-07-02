@@ -18,7 +18,6 @@ def absolute_url(context, value):
         url = "http://"+request.META["HTTP_HOST"]+value
     else:
         url = request.build_absolute_uri()
-    import pdb; pdb.set_trace()
     return url
 
 @register.simple_tag(takes_context=True)
