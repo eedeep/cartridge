@@ -69,7 +69,7 @@ def product(request, slug, template="shop/product.html"):
                                         for v in variations])
     context = {
         "product": product,
-        "images": product.images.all(),
+        "images": product.reduced_image_set(),
         "variations": variations,
         "variations_json": variations_json,
         "has_available_variations": any([v.has_price(session_currency(request)) for v in variations]),

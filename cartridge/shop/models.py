@@ -194,9 +194,10 @@ class Product(Displayable, Priced, RichText):
         return sizes
 
     @property
-    def available_colours(self): #TODO: potentially denormalise this onto the model
-        colours = self.variations.all().values_list("option%i"%settings.OPTION_STYLE, flat=True)
-        return colours
+    def available_colours(self):
+        #TODO: potentially denormalise this onto the model
+        style_field = "option%i" % settings.OPTION_STYLE
+        return [cv[style_field] for cv in self.variations.values(style_field).annotate(num_sizes=models.Count('id'))]
 
     @property
     def available_brands(self): #TODO: potentially denormalise
