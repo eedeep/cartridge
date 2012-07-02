@@ -1,14 +1,31 @@
-
 from decimal import Decimal
+import os
 import locale
 
 from django import template
 
 from cartridge.shop.utils import set_locale
+from django.conf import settings
 
 
 register = template.Library()
 
+@register.simple_tag(takes_context=True)
+def absolute_url(context, value):
+    """ Return an absolute URL based on the fragment passed in """
+    request = context["request"]
+    if value:
+        url = "http://"+request.META["HTTP_HOST"]+value
+    else:
+        url = request.build_absolute_uri()
+    import pdb; pdb.set_trace()
+    return url
+
+@register.simple_tag(takes_context=True)
+def absolute_media_url(context, value):
+    """ Insert the MEDIA_URL into full path """
+    url = absolute_url(context, settings.MEDIA_URL+value)
+    return url
 
 @register.filter
 def currency(value):
