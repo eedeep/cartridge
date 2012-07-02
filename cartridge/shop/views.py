@@ -1,3 +1,4 @@
+import ipdb
 
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
@@ -313,6 +314,22 @@ def checkout_steps(request):
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step}
     return render(request, template, context)
+
+
+def abort(request, transaction_slug, template="shop/aborted.html"):
+    from cottonon_shop.models import ThreeDSecureTransaction
+    try:
+        threed_txn = ThreeDSecureTransaction.objects.get(transaction_slug=transaction_slug)
+        if threed_txn.order:
+            try:
+                order = Order.objects.get(id=threed_txn.order.id)
+            except Order.DoesNotExist:
+                pass
+            else:
+                order.delete()
+    except ThreeDSecureTransaction.DoesNotExist:
+        raise Http404
+    return render(request, template)
 
 
 def complete(request, template="shop/complete.html"):
