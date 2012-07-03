@@ -793,6 +793,11 @@ class CartItem(SelectedProduct):
     def get_absolute_url(self):
         return self.url
 
+    def variation(self):
+        try:
+            return ProductVariation.objects.get(sku=self.sku)
+        except:
+            return None
 
 class OrderItem(SelectedProduct):
     """
