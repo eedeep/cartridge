@@ -262,7 +262,7 @@ class ShippingForm(forms.Form):
         except DiscountCode.DoesNotExist:
             discount = None
         if shipping_option is not None:
-            shipping_cost = Decimal(self._shipping_options.get(self.cleaned_data["id"])[0]) #from settings.FREIGHT_OPTIONS
+            shipping_cost = Decimal(str(self._shipping_options.get(shipping_option)[0])) #from settings.FREIGHT_OPTIONS
             set_shipping(self._request, shipping_option, shipping_cost)
             if discount:
                 total = self._request.cart.calculate_discount(discount)
