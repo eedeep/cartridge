@@ -408,6 +408,11 @@ class OrderForm(FormsetForm, DiscountForm):
         choices = make_choices(range(year, year + 21))
         self.fields["card_expiry_year"].choices = choices
 
+        for prefix in ['billing_detail_', 'shipping_detail_']:
+            country = prefix + 'country'
+            if (country in initial and initial[country] == 'HONG KONG'):
+                self.fields[prefix + 'postcode'].required = False
+
         # Display country field as a list
         if first:
             self.fields['billing_detail_country'] = forms.ChoiceField(
