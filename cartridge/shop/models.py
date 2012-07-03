@@ -398,8 +398,12 @@ class ProductVariation(Priced, ProductVariationAbstract):
         options = []
         for field in self.option_fields():
             if getattr(self, field.name) is not None:
+                if field.name == 'option1':
+                    value = ProductOption.colourName(getattr(self, field.name))
+                else:
+                    value = getattr(self, field.name)
                 options.append("%s: %s" % (unicode(field.verbose_name),
-                                           getattr(self, field.name)))
+                                           value))
         return ("%s %s" % (unicode(self.product), ", ".join(options))).strip()
 
     def get_absolute_url(self):
