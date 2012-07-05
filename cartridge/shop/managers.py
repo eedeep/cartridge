@@ -26,7 +26,9 @@ class CartManager(Manager):
             cart = self.create()
             request.session["cart"] = cart.id
         else:
+            cart.timestamp_save_only = True #provided so promotions only apply when cart changes
             cart.save()  # Update timestamp.
+            cart.timestamp_save_only = False
         return cart
 
 

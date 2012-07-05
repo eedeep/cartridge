@@ -19,10 +19,18 @@ from cartridge.shop.models import Product, ProductVariation, Order
 from cartridge.shop.models import DiscountCode
 from cartridge.shop.utils import recalculate_discount, sign
 
+#TODO remove multicurrency imports from cartridge
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
 from multicurrency.utils import session_currency
 from multicurrency.templatetags.multicurrency_tags import local_currency
 
+#TODO remove cartwatcher imports from cartridge
+try:
+    from cartwatcher.promotions.models import Promotion
+except ImportError: #keep running if cartwatcher not installed
+    Promotion = None
+
+#TODO remove cottonon_shop imports from cartridge
 from cottonon_shop.cybersource import Requires3DSecureVerification 
 from cottonon_shop.models import ThreeDSecureTransaction
 
@@ -67,6 +75,7 @@ def product(request, slug, template="shop/product.html"):
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
+
     context = {
         "product": product,
         "images": product.reduced_image_set(),
@@ -76,6 +85,13 @@ def product(request, slug, template="shop/product.html"):
         "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
         }
+
+    #Get the first promotion for this object
+    if Promotion:
+        #luxury TODO: print the deal's "post applied" message if cart has met requirements.
+        upsell_promotions = Promotion.active.promotions_for_products(request.cart, [product])
+        if upsell_promotions.count()>0:
+            context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
 
 

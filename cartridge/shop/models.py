@@ -719,7 +719,7 @@ class Cart(models.Model):
         """
         Template helper function - sum of all costs of item quantities.
         """
-        return sum([item.total_price for item in self])
+        return sum([item.total for item in self])
 
     def skus(self):
         """
@@ -783,12 +783,21 @@ class SelectedProduct(models.Model):
         self.total_price = self.unit_price * self.quantity
         super(SelectedProduct, self).save(*args, **kwargs)
 
-
 class CartItem(SelectedProduct):
 
     cart = models.ForeignKey("Cart", related_name="items")
     url = CharField(max_length=200)
     image = CharField(max_length=200, null=True)
+
+    @property
+    def total(self):
+        """ total_price including promotion discount if available """
+        t = self.total_price
+        promotion_discount = getattr(self, "promotion_discount", Decimal("0.0"))
+        if promotion_discount>0:
+            t -= promotion_discount
+        return t
+
 
     def get_absolute_url(self):
         return self.url
