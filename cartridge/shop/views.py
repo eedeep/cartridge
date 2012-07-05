@@ -1,4 +1,3 @@
-import ipdb
 
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
@@ -289,7 +288,7 @@ def checkout_steps(request):
                         pareq=threed_exc.get_pareq()
                     )
                     threed_txn.save()
-                    return threed_exc.get_redirect_response(threed_txn.transaction_slug)
+                    return threed_exc.get_redirect_response(request, threed_txn.transaction_slug)
                 else:
                     response = finalise_order(
                         transaction_id,
