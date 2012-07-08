@@ -75,7 +75,6 @@ def product(request, slug, template="shop/product.html"):
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
-
     context = {
         "product": product,
         "images": product.reduced_image_set(),

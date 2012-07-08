@@ -211,13 +211,13 @@ class Product(Displayable, Priced, RichText):
 
     #XXX replace these two methods with tastypie calls
     def colours_json(self):
-        colours = self.variations.all().values_list("option2", flat=True)
+        colours = self.variations.all().values_list("option%s"%settings.OPTION_STYLE, flat=True)
         json = []
         for c in colours: json.append({"colour":c})
         return simplejson.dumps(json)
 
     def sizes_json(self):
-        cs = self.variations.all().values_list("option1", flat=True)
+        cs = self.variations.all().values_list("option%s"%settings.OPTION_SIZE, flat=True)
         json = []
         for c in cs: json.append({"size":c})
         return simplejson.dumps(json)
@@ -256,7 +256,7 @@ class Product(Displayable, Priced, RichText):
             return None
         #if the product has all the tags associated with this size chart, use that.
         for size_chart, tags in SIZE_CHARTS:
-            if all(tag in product_tags for tag in tags):
+            if all(tag.upper() in product_tags for tag in tags):
                 return size_chart
         return "default"
 
