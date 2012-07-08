@@ -330,7 +330,7 @@ class OrderForm(FormsetForm, DiscountForm):
     remember = forms.BooleanField(required=False, initial=True,
         label=_("Remember my address for next time"))
     card_name = forms.CharField(label=_("Cardholder name"))
-    card_type = forms.ChoiceField(widget=forms.RadioSelect,
+    card_type = forms.ChoiceField(widget=JoshRadioSelect,
         choices=make_choices(settings.SHOP_CARD_TYPES))
     card_number = forms.CharField()
     card_expiry_month = forms.ChoiceField(
