@@ -5,6 +5,7 @@ from operator import mul
 
 from django.core.urlresolvers import reverse
 from django.test import TestCase
+from django.test.utils import override_settings
 from mezzanine.conf import settings
 from mezzanine.core.models import CONTENT_STATUS_PUBLISHED
 from mezzanine.utils.tests import run_pyflakes_for_package
@@ -91,6 +92,31 @@ class ShopTests(TestCase):
         variation = self._product.variations.all()[0]
         variation.num_in_stock = 0
         self.assertFalse(variation.has_stock())
+
+    @override_settings(STOCK_THRESHOLD=10,
+                       STOCK_POOL_THRESHOLD=1,
+                       STOCK_POOL_CUTOFF=1)
+    def test_reduce_stock(self):
+        """
+        Test cottonon stock on product variations.
+        """
+        self._product.variations.all().delete()
+        self._product.variations.manage_empty()
+        variation = self._product.variations.all()[0]
+        for stock, stock_pool, quantity, left in (
+            (11, 0, 1, 10),
+            (12, 0, 2, 10),
+            (3, 10, 1, 2),
+            (2, 2, 1, 1),
+            (2, 10, 1, 1),
+            (2, 2, 2, 2),
+            (1, 10, 1, 1),
+            (0, 10, 1, 0),
+            (0, 0, 1, 0)):
+            variation.num_in_stock = stock
+            variation.num_in_stock_pool = stock_pool
+            variation.reduce_stock(quantity)
+            self.assertEqual(variation.num_in_stock, left)
 
     def assertCategoryFilteredProducts(self, num_products):
         """

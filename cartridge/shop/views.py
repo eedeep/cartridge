@@ -288,7 +288,7 @@ def checkout_steps(request):
                         pareq=threed_exc.get_pareq()
                     )
                     threed_txn.save()
-                    return threed_exc.get_redirect_response(threed_txn.transaction_slug)
+                    return threed_exc.get_redirect_response(request, threed_txn.transaction_slug)
                 else:
                     response = finalise_order(
                         transaction_id,
@@ -313,6 +313,22 @@ def checkout_steps(request):
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step}
     return render(request, template, context)
+
+
+def abort(request, transaction_slug, template="shop/aborted.html"):
+    from cottonon_shop.models import ThreeDSecureTransaction
+    try:
+        threed_txn = ThreeDSecureTransaction.objects.get(transaction_slug=transaction_slug)
+        if threed_txn.order:
+            try:
+                order = Order.objects.get(id=threed_txn.order.id)
+            except Order.DoesNotExist:
+                pass
+            else:
+                order.delete()
+    except ThreeDSecureTransaction.DoesNotExist:
+        raise Http404
+    return render(request, template)
 
 
 def complete(request, template="shop/complete.html"):
