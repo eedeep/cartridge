@@ -172,6 +172,9 @@ class Product(Displayable, Priced, RichText):
     in_stock = models.BooleanField(_("In Stock"), default=False)
     ranking = models.IntegerField(default=500)
 
+    _available_colours = CharField(_("Available colours"), blank=True, default="", max_length=255)
+    _available_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
+
     tags = TaggableManager()
     objects = DisplayableManager()
     search_fields = ("master_item_code",)
@@ -190,14 +193,11 @@ class Product(Displayable, Priced, RichText):
 
     @property
     def available_sizes(self): #TODO: potentially denormalise this onto the model
-        sizes = self.variations.all().values_list("option%i"%settings.OPTION_SIZE, flat=True)
-        return sizes
+        return self._available_sizes.split(",")
 
     @property
     def available_colours(self):
-        #TODO: potentially denormalise this onto the model
-        style_field = "option%i" % settings.OPTION_STYLE
-        return [cv[style_field] for cv in self.variations.values(style_field).annotate(num_sizes=models.Count('id'))]
+        return self._available_colours.split(",")
 
     @property
     def available_brands(self): #TODO: potentially denormalise
@@ -276,6 +276,11 @@ class Product(Displayable, Priced, RichText):
         # Update in stock flag.
         # XXX: stockpool update needed
         self.in_stock = (self.variations.filter(num_in_stock__gte=10).count() > 0)
+
+        #store available variation colours on the product
+        style_field = "option%i" % settings.OPTION_STYLE
+        self._available_colours = ",".join(set(self.variations.values_list(style_field,flat=True)))
+        self._available_sizes = ",".join(set(self.variations.values_list("option%i"%settings.OPTION_SIZE, flat=True)))
         super(Product, self).save(*args, **kwargs)
 
     def admin_thumb(self):
