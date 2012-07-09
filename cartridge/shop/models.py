@@ -172,8 +172,8 @@ class Product(Displayable, Priced, RichText):
     in_stock = models.BooleanField(_("In Stock"), default=False)
     ranking = models.IntegerField(default=500)
 
-    _available_colours = CharField(_("Available colours"), blank=True, default="", max_length=255)
-    _available_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
+    product_colours = CharField(_("Available colours"), blank=True, default="", max_length=255)
+    product_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
 
     tags = TaggableManager()
     objects = DisplayableManager()
@@ -193,11 +193,11 @@ class Product(Displayable, Priced, RichText):
 
     @property
     def available_sizes(self): #TODO: potentially denormalise this onto the model
-        return self._available_sizes.split(",")
+        return self.product_sizes.split(",")
 
     @property
     def available_colours(self):
-        return self._available_colours.split(",")
+        return self.product_colours.split(",")
 
     @property
     def available_brands(self): #TODO: potentially denormalise
