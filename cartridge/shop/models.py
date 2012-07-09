@@ -211,13 +211,13 @@ class Product(Displayable, Priced, RichText):
 
     #XXX replace these two methods with tastypie calls
     def colours_json(self):
-        colours = self.variations.all().values_list("option2", flat=True)
+        colours = self.variations.all().values_list("option%s"%settings.OPTION_STYLE, flat=True)
         json = []
         for c in colours: json.append({"colour":c})
         return simplejson.dumps(json)
 
     def sizes_json(self):
-        cs = self.variations.all().values_list("option1", flat=True)
+        cs = self.variations.all().values_list("option%s"%settings.OPTION_SIZE, flat=True)
         json = []
         for c in cs: json.append({"size":c})
         return simplejson.dumps(json)
@@ -256,7 +256,7 @@ class Product(Displayable, Priced, RichText):
             return None
         #if the product has all the tags associated with this size chart, use that.
         for size_chart, tags in SIZE_CHARTS:
-            if all(tag in product_tags for tag in tags):
+            if all(tag.upper() in product_tags for tag in tags):
                 return size_chart
         return "default"
 
@@ -458,20 +458,19 @@ class ProductVariation(Priced, ProductVariationAbstract):
     @property
     def total_in_stock(self):
         """
-        Get the total stock levels `Stock on hand + Stock Pool`
+        Get the total stock levels.
+        If stock_pool > STOCK_POOL_CUTOFF: stock - STOCK_THRHESHOLD
+        If stock_pool <= 0: stock - STOCK_POOL_THRESHOLD
         """
-        # set threshold based on product category
-        actual_num_in_stock = self.num_in_stock - settings.STOCK_THRESHOLD
-        for category in Category.objects.filter(titles__in=settings.NO_THRESHOLD_CATEGORIES):
-            if category in self.product.categories.all():
-                actual_num_in_stock = self.num_in_stock-1
-
-        # If the actual_num_in_stock is less than the stockpool
-        # then only return the stockpool
-        if self.num_in_stock_pool > actual_num_in_stock:
-            return self.num_in_stock_pool
+        stock = self.num_in_stock
+        stock_pool = self.num_in_stock_pool
+        if stock_pool > settings.STOCK_POOL_CUTOFF:
+            threshold = settings.STOCK_POOL_THRESHOLD
         else:
-            return actual_num_in_stock
+            threshold = settings.STOCK_THRESHOLD
+        if stock - threshold > 0:
+            return stock - threshold
+        return 0
 
     def reduce_stock(self, amount):
         """
@@ -479,23 +478,12 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         splog.info('Reducing stock for sku: %s, by amount: %s, from total stock: %s' % (self.sku, amount, self.total_in_stock))
         splog.info('SOH: %s, SP:%s' % (self.num_in_stock, self.num_in_stock_pool))
-        if amount <= self.num_in_stock_pool:
-            # Take only from the num_in_stock_pool
-            self.num_in_stock_pool -= amount
-            # if the amount is less than the number in the stock pool (less threshold)
-            # then remove the amount from SOH
-            if amount < (self.num_in_stock-settings.STOCK_THRESHOLD):
-                self.num_in_stock -= amount
-                splog.info('Case-1 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
-            else:
-                # Otherwise the reduce the SOH to threshold level
-                self.num_in_stock = settings.STOCK_THRESHOLD
-                splog.info('Case-2 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
-        else:
-            # Take from num_in_stock_pool first then num_in_stock
-            self.num_in_stock_pool = 0
+        if self.total_in_stock - amount >= 0:
             self.num_in_stock -= amount
-            splog.info('Case-3 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
+            self.save()
+            splog.info('SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
+            return True
+        return False
 
     @property
     def alternate_sku(self):
@@ -637,9 +625,7 @@ class Order(models.Model):
             except ProductVariation.DoesNotExist:
                 pass
             else:
-                if variation.num_in_stock is not None:
-                    variation.num_in_stock -= item.quantity
-                    variation.save()
+                variation.reduce_stock(item.quantity)
                 variation.product.actions.purchased()
         request.cart.delete()
 

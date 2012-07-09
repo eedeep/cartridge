@@ -64,6 +64,9 @@ class TagFacet(models.Model):
     slug = models.SlugField(verbose_name=_('Slug'), unique=True, max_length=100)
     tags = models.ManyToManyField("Tag", help_text="Group tags around this facet")
 
+    class Meta:
+        ordering = ["name"]
+
     def __unicode__(self):
         return self.name
 
@@ -72,6 +75,7 @@ class Tag(TagBase):
     class Meta:
         verbose_name = _("Tag")
         verbose_name_plural = _("Tags")
+        ordering = ["name"]
 
     #def __unicode__(self):
     #    return "%s:%s"%(":".join(self.facets.all().values_list("name", flat=True)), self.name)
