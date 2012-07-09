@@ -279,8 +279,8 @@ class Product(Displayable, Priced, RichText):
 
         #store available variation colours on the product
         style_field = "option%i" % settings.OPTION_STYLE
-        self._available_colours = ",".join(set(self.variations.values_list(style_field,flat=True)))
-        self._available_sizes = ",".join(set(self.variations.values_list("option%i"%settings.OPTION_SIZE, flat=True)))
+        self.product_colours = ",".join(set(self.variations.values_list(style_field,flat=True)))
+        self.product_sizes = ",".join(set(self.variations.values_list("option%i"%settings.OPTION_SIZE, flat=True)))
         super(Product, self).save(*args, **kwargs)
 
     def admin_thumb(self):
