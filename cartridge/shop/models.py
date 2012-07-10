@@ -172,7 +172,7 @@ class Product(Displayable, Priced, RichText):
     in_stock = models.BooleanField(_("In Stock"), default=False)
     ranking = models.IntegerField(default=500)
 
-    product_colours = CharField(_("Available colours"), blank=True, default="", max_length=255)
+    product_colours = CharField(_("Available colours"), blank=True, default="", max_length=500)
     product_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
 
     tags = TaggableManager()
