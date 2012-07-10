@@ -108,7 +108,10 @@ class AddProductForm(forms.Form):
            for i, name in enumerate(option_names):
                values = filter(None, set(option_values[i]))
                if values:
-                   choices = make_choices(values)
+                   choices = make_choices(
+                       ProductOption.objects.filter(name__in=values,
+                                                    type=i+1).order_by(
+                           "ranking").values_list("name", flat=True))
                    kwargs = {"label":(option_labels[i]),
                              "choices":[(x[0], ProductOption.colourName(x[1])) for x in choices]}
                    if name == "option%s"%settings.OPTION_SIZE: #use radio for size
