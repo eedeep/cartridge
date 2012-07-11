@@ -1062,7 +1062,7 @@ class DiscountCodeUnique(DiscountCode):
         verbose_name = 'Unique Discount Code'
         verbose_name_plural = 'Unique Discount Codes'
 
-class CategoryPage(models.Model):
+class CategoryTheme(models.Model):
     """ Cottonon Brand Pages ... a "skin" for the category page """
     category = models.ForeignKey(Category, unique=True)
     name = models.CharField(max_length=60, help_text="eg July Refresh 2012")
@@ -1077,6 +1077,9 @@ class CategoryPage(models.Model):
             help_text=_("With published checked, won't be shown after this time"),
             blank=True, null=True)
 
+    class Meta:
+        db_table = "shop_categorypage"
+
     just_arrived = models.ForeignKey(Category, related_name='catergorypage_just_arrived_set', help_text=_("Select a category and its featured products will display on the brand page"))
 
     objects = PublishedManager()
@@ -1087,7 +1090,7 @@ class CategoryPage(models.Model):
     def save(self, *args, **kwargs):
         if self.publish_date is None:
             self.publish_date = datetime.now()
-        super(CategoryPage, self).save(*args, **kwargs)
+        super(CategoryTheme, self).save(*args, **kwargs)
 
     def primary_images(self):
         return PrimaryCategoryPageImage.objects.active().filter(panel=self)
@@ -1109,7 +1112,7 @@ class CategoryPage(models.Model):
 ############
 
 class CategoryPageImage(models.Model):
-    panel = models.ForeignKey('CategoryPage')
+    panel = models.ForeignKey('CategoryTheme')
 
     image = models.ImageField(_("Image"), max_length=100, blank=True, upload_to="category_page")
     alt_text = models.CharField(max_length=140,blank=True)
