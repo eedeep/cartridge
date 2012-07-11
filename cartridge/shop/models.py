@@ -55,6 +55,9 @@ class Category(Page, RichText):
     combined = models.BooleanField(default=True, help_text="If checked, "
         "products must match all specified filters, otherwise products "
         "can match any specified filter.")
+    hide_sizes = models.BooleanField(_("Hide size filter"),
+            help_text=_("If ticked the size filter will be hidden when the category is displayed."),
+            default=False)
 
     class Meta:
         verbose_name = _("Product category")
@@ -1067,7 +1070,6 @@ class CategoryPage(models.Model):
     status = models.IntegerField(_("Status"),
             choices=CONTENT_STATUS_CHOICES,
             default=CONTENT_STATUS_DRAFT)
-
     publish_date = models.DateTimeField(_("Published from"),
             help_text=_("With published checked, won't be shown until this time"),
             blank=True, null=True)
