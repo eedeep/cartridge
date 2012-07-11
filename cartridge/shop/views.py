@@ -198,8 +198,6 @@ def finalise_order(transaction_id, request, order, remember):
     # Then send the order email to the customer.
     order.transaction_id = transaction_id
     order.complete(request)
-    order_handler(request, dict(), order)
-    checkout.send_order_email(request, order)
     # Set the cookie for remembering address details
     # if the "remember" checkbox was checked.
     response = redirect("shop_complete")
