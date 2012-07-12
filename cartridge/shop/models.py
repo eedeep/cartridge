@@ -32,6 +32,7 @@ except ImportError:
 
 import logging
 splog = logging.getLogger('stockpool.log')
+elog = logging.getLogger('cottonon.errors')
 
 
 #session values
@@ -39,7 +40,6 @@ SESSION_SHIPPINGTYPE = "shipping_type"
 SESSION_SHIPPINGTOTAL = "shipping_total"
 SESSION_DISCOUNTCODE = "discount_code"
 SESSION_DISCOUNTTOTAL = "discount_total"
-
 
 
 class Category(Page, RichText):
@@ -234,6 +234,16 @@ class Product(Displayable, Priced, RichText):
         #json = ""
         json = self.tags.filter(tagfacet__name="style").values_list("id", "display_name", flat=True)
         return simplejson.dumps(json)
+
+    @property
+    def default_variation(self):
+        try:
+            v = self.variations.get(default=True)
+        except ProductVariation.DoesNotExist: #fail gracefully by falling back to other variation
+            elog.error('No default variation for product id {0} ({1})'.format(self.id, self.title))
+            vs = self.variations.all()
+            v = self if vs.count() == 0 else vs[0] #if no variations at all, return Product else first variation
+        return v
 
     @property
     def size_chart(self):
