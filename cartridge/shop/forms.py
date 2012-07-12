@@ -332,6 +332,8 @@ class OrderForm(FormsetForm, DiscountForm):
         label=_("My delivery details are the same as my billing details"))
     remember = forms.BooleanField(required=False, initial=True,
         label=_("Remember my address for next time"))
+    terms = forms.BooleanField(required=True, initial=False,
+        label=_("I agree to Terms and Conditions"))
     card_name = forms.CharField(label=_("Cardholder name"))
     card_type = forms.ChoiceField(widget=JoshRadioSelect,
         choices=make_choices(settings.SHOP_CARD_TYPES))

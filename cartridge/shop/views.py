@@ -31,7 +31,7 @@ except ImportError: #keep running if cartwatcher not installed
     Promotion = None
 
 #TODO remove cottonon_shop imports from cartridge
-from cottonon_shop.cybersource import Requires3DSecureVerification 
+from cottonon_shop.cybersource import Requires3DSecureVerification
 from cottonon_shop.models import ThreeDSecureTransaction
 
 # Set up checkout handlers.
@@ -307,6 +307,7 @@ def checkout_steps(request):
     step_vars = checkout.CHECKOUT_STEPS[step - 1]
     template = "shop/%s.html" % step_vars["template"]
     CHECKOUT_STEP_FIRST = step == checkout.CHECKOUT_STEP_FIRST
+    form.label_suffix = ''
     context = {"form": form, "CHECKOUT_STEP_FIRST": CHECKOUT_STEP_FIRST,
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step}
