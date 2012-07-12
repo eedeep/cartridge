@@ -55,6 +55,9 @@ class Category(Page, RichText):
     combined = models.BooleanField(default=True, help_text="If checked, "
         "products must match all specified filters, otherwise products "
         "can match any specified filter.")
+    hide_sizes = models.BooleanField(_("Hide size filter"),
+            help_text=_("If ticked the size filter will be hidden when the category is displayed."),
+            default=False)
 
     class Meta:
         verbose_name = _("Product category")
@@ -172,6 +175,9 @@ class Product(Displayable, Priced, RichText):
     in_stock = models.BooleanField(_("In Stock"), default=False)
     ranking = models.IntegerField(default=500)
 
+    product_colours = CharField(_("Available colours"), blank=True, default="", max_length=500)
+    product_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
+
     tags = TaggableManager()
     objects = DisplayableManager()
     search_fields = ("master_item_code",)
@@ -190,14 +196,11 @@ class Product(Displayable, Priced, RichText):
 
     @property
     def available_sizes(self): #TODO: potentially denormalise this onto the model
-        sizes = self.variations.all().values_list("option%i"%settings.OPTION_SIZE, flat=True)
-        return sizes
+        return self.product_sizes.split(",")
 
     @property
     def available_colours(self):
-        #TODO: potentially denormalise this onto the model
-        style_field = "option%i" % settings.OPTION_STYLE
-        return [cv[style_field] for cv in self.variations.values(style_field).annotate(num_sizes=models.Count('id'))]
+        return self.product_colours.split(",")
 
     @property
     def available_brands(self): #TODO: potentially denormalise
@@ -276,6 +279,11 @@ class Product(Displayable, Priced, RichText):
         # Update in stock flag.
         # XXX: stockpool update needed
         self.in_stock = (self.variations.filter(num_in_stock__gte=10).count() > 0)
+
+        #store available variation colours on the product
+        style_field = "option%i" % settings.OPTION_STYLE
+        self.product_colours = ",".join(set(self.variations.values_list(style_field,flat=True)))
+        self.product_sizes = ",".join(set(self.variations.values_list("option%i"%settings.OPTION_SIZE, flat=True)))
         super(Product, self).save(*args, **kwargs)
 
     def admin_thumb(self):
@@ -1054,7 +1062,7 @@ class DiscountCodeUnique(DiscountCode):
         verbose_name = 'Unique Discount Code'
         verbose_name_plural = 'Unique Discount Codes'
 
-class CategoryPage(models.Model):
+class CategoryTheme(models.Model):
     """ Cottonon Brand Pages ... a "skin" for the category page """
     category = models.ForeignKey(Category, unique=True)
     name = models.CharField(max_length=60, help_text="eg July Refresh 2012")
@@ -1062,13 +1070,15 @@ class CategoryPage(models.Model):
     status = models.IntegerField(_("Status"),
             choices=CONTENT_STATUS_CHOICES,
             default=CONTENT_STATUS_DRAFT)
-
     publish_date = models.DateTimeField(_("Published from"),
             help_text=_("With published checked, won't be shown until this time"),
             blank=True, null=True)
     expiry_date = models.DateTimeField(_("Expires on"),
             help_text=_("With published checked, won't be shown after this time"),
             blank=True, null=True)
+
+    class Meta:
+        db_table = "shop_categorypage"
 
     just_arrived = models.ForeignKey(Category, related_name='catergorypage_just_arrived_set', help_text=_("Select a category and its featured products will display on the brand page"))
 
@@ -1080,7 +1090,7 @@ class CategoryPage(models.Model):
     def save(self, *args, **kwargs):
         if self.publish_date is None:
             self.publish_date = datetime.now()
-        super(CategoryPage, self).save(*args, **kwargs)
+        super(CategoryTheme, self).save(*args, **kwargs)
 
     def primary_images(self):
         return PrimaryCategoryPageImage.objects.active().filter(panel=self)
@@ -1102,7 +1112,7 @@ class CategoryPage(models.Model):
 ############
 
 class CategoryPageImage(models.Model):
-    panel = models.ForeignKey('CategoryPage')
+    panel = models.ForeignKey('CategoryTheme')
 
     image = models.ImageField(_("Image"), max_length=100, blank=True, upload_to="category_page")
     alt_text = models.CharField(max_length=140,blank=True)
