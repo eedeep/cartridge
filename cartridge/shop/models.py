@@ -288,7 +288,11 @@ class Product(Displayable, Priced, RichText):
     def save(self, *args, **kwargs):
         # Update in stock flag.
         # XXX: stockpool update needed
-        self.in_stock = (self.variations.filter(num_in_stock__gte=10).count() > 0)
+        self.in_stock = False
+        for variation in self.variations.all():
+            if variation.has_stock():
+                self.in_stock = True
+                break
 
         #store available variation colours on the product
         style_field = "option%i" % settings.OPTION_STYLE
