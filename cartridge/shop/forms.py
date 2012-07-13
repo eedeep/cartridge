@@ -104,9 +104,24 @@ class AddProductForm(forms.Form):
         option_values = zip(*self._product.variations.filter(
             unit_price__isnull=False).values_list(*option_names))
 
+        # check if style is out of stock
+        option1_list = dict()
+        variations = self._product.variations.filter(num_in_stock__gt=0)
+        for variation in variations:
+            if variation.option1 in option1_list and option1_list[variation.option1] > 0:
+                continue
+            option1_list[variation.option1] = variation.total_in_stock > 0
+
         if option_values:
            for i, name in enumerate(option_names):
-               values = filter(None, set(option_values[i]))
+               if name == 'option1':
+                   # Don't display style if it's out of stock
+                   values = filter(lambda x: x in option1_list and option1_list[x],
+                                   set(option_values[i]))
+                   if len(values) == 0 and len(option_values[i]) > 0:
+                       values = [option_values[i][0]]
+               else:
+                   values = filter(None, set(option_values[i]))
                if values:
                    choices = make_choices(
                        ProductOption.objects.filter(name__in=values,
