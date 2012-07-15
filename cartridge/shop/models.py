@@ -7,6 +7,7 @@ from django.db import models
 from django.db.models import CharField, Q
 from django.db.models.base import ModelBase
 from django.utils.translation import ugettext_lazy as _
+from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
 from _mysql_exceptions import OperationalError
 from django.utils import simplejson
 
@@ -243,6 +244,9 @@ class Product(Displayable, Priced, RichText):
             elog.error('No default variation for product id {0} ({1})'.format(self.id, self.title))
             vs = self.variations.all()
             v = self if vs.count() == 0 else vs[0] #if no variations at all, return Product else first variation
+        except MultipleObjectsReturned:
+            elog.error('Multiple default variations for product id {0} ({1})'.format(self.id, self.title))
+            v = self.variations.filter(default=True)[0]
         return v
 
     @property
