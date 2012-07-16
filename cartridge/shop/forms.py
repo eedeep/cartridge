@@ -333,6 +333,10 @@ class DiscountForm(forms.ModelForm):
             self._request.session["free_shipping"] = discount.free_shipping
             self._request.session["discount_code"] = discount.code
             self._request.session["discount_total"] = total
+        else:
+            self._request.session.pop("discount_code", None)
+            self._request.session.pop("discount_total", None)
+            self._request.session.pop("free_shipping", None)
 
 
 class OrderForm(FormsetForm, DiscountForm):

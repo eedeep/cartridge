@@ -219,6 +219,13 @@ class DiscountCodeManager(Manager):
         )
 
         discount = self.active().get(total_price_valid, usages_remaining_valid, code=code)
+
+        # If no products or categories are set them assume the discount is
+        # store wide.
+        if discount.products.all().count() == 0 and \
+                discount.categories.all().count() == 0:
+            return discount
+
         discount_categories = discount.categories.all()
         skus = [item.sku for item in cart]
         # XXX: Required import as managers

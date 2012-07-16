@@ -1,3 +1,5 @@
+import itertools 
+
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
 from django.http import Http404, HttpResponse
@@ -6,6 +8,7 @@ from django.template import RequestContext
 from django.template.defaultfilters import slugify
 from django.template.loader import get_template
 from django.utils import simplejson
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 
@@ -22,7 +25,8 @@ from cartridge.shop.utils import recalculate_discount, sign
 #TODO remove multicurrency imports from cartridge
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
 from multicurrency.utils import session_currency
-from multicurrency.templatetags.multicurrency_tags import local_currency
+from multicurrency.templatetags.multicurrency_tags import \
+    local_currency, formatted_price, _order_totals
 
 #TODO remove cartwatcher imports from cartridge
 try:
@@ -139,30 +143,56 @@ def wishlist(request, template="shop/wishlist.html"):
     return response
 
 
+def _discount_data(request, discount_form):
+    """
+    Call _order_totals from the multicurrency template tag library to
+    basically simulate what happens during normal page rendering - ie,
+    the order total, discount total and shipping total all get set
+    in the context and then referenced in the template code in order to be 
+    displayed to the user. 
+    """
+    updated_context = _order_totals({'request': request})
+    for key, val in updated_context.items():
+        if '_total' in key:
+            updated_context[key] = formatted_price(request, val)
+
+    data = {
+       'error_message': ' '.join(list(itertools.chain.from_iterable(discount_form.errors.values()))),
+       'discount_total': updated_context['discount_total'], 
+       'total_price':  updated_context['order_total'],
+       'shipping_total': updated_context['shipping_total'],
+    }
+    return simplejson.dumps(data, cls=DjangoJSONEncoder)
+
+def _discount_form_for_cart(request):
+    discount_code = request.POST.get("discount_code", None)
+    if discount_code is None:
+        discount_code = request.session.get("discount_code", None)
+    return DiscountForm(request, {'discount_code': discount_code})
+
+def _shipping_form_for_cart(request, currency):
+    shipping_option = request.session.get("shipping_type", None)
+    if not shipping_option: 
+        shipping_option = request.POST.get(
+            "shipping_option", 
+            settings.FREIGHT_DEFAULTS[currency]
+        )
+    return ShippingForm(request, currency, {"id": shipping_option})
+
 def cart(request, template="shop/cart.html"):
     """
     Display cart and handle removing items from the cart.
     """
-    cart_formset = CartItemFormSet(instance=request.cart)
-    discount_code = request.session.get("discount_code", None)
-    discount_initial = {"discount_code":discount_code} if discount_code else None
-    discount_form = DiscountForm(request, request.POST or discount_initial)
     currency = session_currency(request)
-    shipping_option = request.session.get("shipping_type", None)
-    if shipping_option == None: #apply default shipping for this currency
-        shipping_option = settings.FREIGHT_DEFAULTS[currency]
-        shipping_form = ShippingForm(request, currency, {"id":shipping_option})
-        valid = shipping_form.is_valid()
-        shipping_form.set_shipping()
+    cart_formset = CartItemFormSet(instance=request.cart)
+    shipping_form = _shipping_form_for_cart(request, currency)
+    discount_form = _discount_form_for_cart(request)
 
-    shipping_initial = {"id":shipping_option} if shipping_option else None
-    shipping_form = ShippingForm(request, currency, request.POST or shipping_initial)
+    valid = False
     if request.method == "POST":
-        valid = True
         if request.POST.get("update_cart"):
             valid = request.cart.has_items()
             if not valid:
-                # Session timed out.
                 info(request, _("Your cart has expired"))
             else:
                 cart_formset = CartItemFormSet(request.POST,
@@ -173,21 +203,30 @@ def cart(request, template="shop/cart.html"):
                     recalculate_discount(request)
                     info(request, _("Cart updated"))
         else:
-            valid = discount_form.is_valid()
-            if valid:
+            discount_valid = discount_form.is_valid()
+            if discount_valid:
                 discount_form.set_discount()
-            valid = shipping_form.is_valid()
-            if valid:
+            shipping_valid = shipping_form.is_valid()
+            if shipping_valid:
                 shipping_form.set_shipping()
+            valid = True if discount_valid and shipping_valid else False 
+
         if valid:
-            return redirect("shop_cart")
+            if request.is_ajax():
+                return HttpResponse(_discount_data(request, discount_form), "application/javascript")
+            else:
+                return redirect("shop_checkout")
+
     context = {"cart_formset": cart_formset}
     settings.use_editable()
     if (settings.SHOP_DISCOUNT_FIELD_IN_CART and
         DiscountCode.objects.active().count() > 0):
         context["discount_form"] = discount_form
     context["shipping_form"] = shipping_form
-    return render(request, template, context)
+    if request.is_ajax():
+        return HttpResponse(_discount_data(request, discount_form), "application/javascript")
+    else:
+        return render(request, template, context)
 
 
 def finalise_order(transaction_id, request, order, remember):
@@ -215,7 +254,6 @@ def checkout_steps(request):
     """
     Display the order form and handle processing of each step.
     """
-
     # Do the authentication check here rather than using standard
     # login_required decorator. This means we can check for a custom
     # LOGIN_URL and fall back to our own login view.
