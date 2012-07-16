@@ -1,4 +1,3 @@
-
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
 from django.http import Http404, HttpResponse
@@ -8,6 +7,7 @@ from django.template.defaultfilters import slugify
 from django.template.loader import get_template
 from django.utils import simplejson
 from django.utils.translation import ugettext as _
+from django.views.decorators.cache import never_cache
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -210,6 +210,7 @@ def finalise_order(transaction_id, request, order, remember):
     return response
 
 
+@never_cache
 def checkout_steps(request):
     """
     Display the order form and handle processing of each step.
