@@ -171,12 +171,9 @@ def _discount_form_for_cart(request):
     return DiscountForm(request, {'discount_code': discount_code})
 
 def _shipping_form_for_cart(request, currency):
-    shipping_option = request.session.get("shipping_type", None)
-    if not shipping_option: 
-        shipping_option = request.POST.get(
-            "shipping_option", 
-            settings.FREIGHT_DEFAULTS[currency]
-        )
+    shipping_option = request.POST.get("shipping_option", None)
+    if not shipping_option:
+        shipping_option = request.session.get("shipping_type", settings.FREIGHT_DEFAULTS[currency])
     return ShippingForm(request, currency, {"id": shipping_option})
 
 def cart(request, template="shop/cart.html"):

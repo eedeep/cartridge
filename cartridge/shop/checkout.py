@@ -91,6 +91,7 @@ def initial_order_data(request):
                 shipping(f) in initial and
                 initial[f] != initial[shipping(f)]]):
                 initial["same_billing_shipping"] = False
+    initial['discount_code'] = request.session.get('discount_code', None)
     return initial
 
 

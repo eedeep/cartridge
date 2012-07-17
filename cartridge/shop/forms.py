@@ -332,11 +332,15 @@ class DiscountForm(forms.ModelForm):
                 set_shipping(self._request, _("Free shipping"), 0)
             self._request.session["free_shipping"] = discount.free_shipping
             self._request.session["discount_code"] = discount.code
+            if self._request.session.has_key('order'):
+                self._request.session['order']['discount_code'] = discount.code
             self._request.session["discount_total"] = total
         else:
             self._request.session.pop("discount_code", None)
             self._request.session.pop("discount_total", None)
             self._request.session.pop("free_shipping", None)
+            if self._request.session.has_key('order'):
+                self._request.session['order'].pop('discount_code', None)
 
 
 class OrderForm(FormsetForm, DiscountForm):
@@ -401,10 +405,10 @@ class OrderForm(FormsetForm, DiscountForm):
         super(OrderForm, self).__init__(request, data=data, initial=initial)
         self._checkout_errors = errors
         settings.use_editable()
-        # Hide Discount Code field if no codes are active.
-        if (DiscountCode.objects.active().count() == 0 or
-            not settings.SHOP_DISCOUNT_FIELD_IN_CHECKOUT):
-            self.fields["discount_code"].widget = forms.HiddenInput()
+
+        # Always hide Discount Code field, it will only get displayed once
+        # on the cart field and from then on it will be a hidden input.
+        self.fields["discount_code"].widget = forms.HiddenInput()
 
         # Determine which sets of fields to hide for each checkout step.
         hidden = None
