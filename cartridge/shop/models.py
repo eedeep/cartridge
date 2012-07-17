@@ -253,29 +253,25 @@ class Product(Displayable, Priced, RichText):
     def size_chart(self):
         """
         Return a slug that suggests which size chart to use for this product.
-        Use the top category as a cue in most situations, but special business rules for
-        Shop, Typo, Kids and Sale categories, and when the only size available is solid or osfa.
+        Use the product categories to select the html size guide subsection.
         """
-        SIZE_CHARTS = ( #in order of preference
-                (None, ["typo",]),
-                ("mens-shoes", ["mens", "shoes",]),
-                ("kids-shoes", ["kids", "shoes",]),
-                ("kids", ["kids",]),
-                ("women", ["women",]),
-                ("men", ["men",]),
-                ("body", ["body",]),
-                ("rubi", ["rubi",]),
-                )
-        product_tags = self.tags.all().values_list("name", flat=True)
-        sizes = [x.upper() for x in self.available_sizes]
-        #some sizes have no chart
-        if len(sizes)==1 and any(x in ["SOLID", "OSFA"] for x in sizes):
-            return None
-        #if the product has all the tags associated with this size chart, use that.
-        for size_chart, tags in SIZE_CHARTS:
-            if all(tag.upper() in product_tags for tag in tags):
-                return size_chart
-        return "default"
+        categories = self.categories.all().values_list('id', flat=True)
+        for cat_id, name in ((822, None),
+                             (872, 'mens-shoes'),
+                             (857, 'kidsfootwear'),
+                             (1747, 'kidsfootwear'),
+                             (924, 'body'),
+                             (923, 'rubi'),
+                             (847, 'kids'),
+                             (860, 'men'),
+                             (899, 'women')):
+            if cat_id in categories:
+                sizes = [x.upper() for x in self.available_sizes]
+                if (len(sizes)==1 and
+                    any(x in ["SOLID", "OSFA"] for x in sizes)):
+                    return None
+                return name
+        return None
 
     def copy_default_variation(self):
         """
