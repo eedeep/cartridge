@@ -99,6 +99,7 @@ def _order_email_context(order):
     """ Return the context with all info rendering an order receipt will need.
     Used by send_order_email and export to PDF in admin """
     order_context = {"order": order, "order_items": order.items.all()}
+
     store_config = settings.STORE_CONFIGS[order.currency]
     order_context["tax_type"] = store_config.tax_type
     order_context["tax_amount"] = order.item_total * store_config.tax_rate
@@ -109,13 +110,17 @@ def _order_email_context(order):
     return order_context
 
 
-def send_order_email(request, order):
+def send_order_email(request, order, order_items=None):
     """
     Send order receipt email on successful order.
     """
     settings.use_editable()
     order_context = _order_email_context(order)
     order_context["request"] = request
+    if order_items:
+        order_context['order_items'] = order_items
+    sys.stdout.write(str(order_context))
+
     send_mail_template(_("Order Receipt"), "shop/email/order_receipt",
         settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
         context=order_context)

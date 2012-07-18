@@ -676,6 +676,25 @@ class Order(models.Model):
     invoice.allow_tags = True
     invoice.short_description = ""
 
+    def receipt_order_items(self):
+        """
+        Return a simplified data structure containing the essential
+        order item details required for rending the order receipt
+        email templates. The reason for doing this is that celery
+        running asychronously does not play nicely with retreiving
+        related model instaces off of the order (ie, order.items.all())
+        - we end up just getting an empty list, which is obviously
+        not what we want.
+        """
+        items = []
+        for i in self.items.all():
+            items.append({
+                'quantity': i.quantity,
+                'description': i.description,
+                'unit_price': i.unit_price,
+            })
+        return items
+
 
 class Cart(models.Model):
 
