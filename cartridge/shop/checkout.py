@@ -119,8 +119,6 @@ def send_order_email(request, order, order_items=None):
     order_context["request"] = request
     if order_items:
         order_context['order_items'] = order_items
-    sys.stdout.write(str(order_context))
-
     send_mail_template(_("Order Receipt"), "shop/email/order_receipt",
         settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
         context=order_context)
