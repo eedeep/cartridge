@@ -171,9 +171,19 @@ def _discount_form_for_cart(request):
     return DiscountForm(request, {'discount_code': discount_code})
 
 def _shipping_form_for_cart(request, currency):
+    """
+    If the user is submitting the form, get the shipping option from the 
+    form post. Otherwise, try to grab it from the session in order to
+    set it to whatever it is currently (eg in the case of an ajax request
+    coming through to verify the discount code, this is what we want to 
+    happen). If its not set in the session, then set it to the default
+    shipping type for the current session currency.
+    """
     shipping_option = request.POST.get("shipping_option", None)
     if not shipping_option:
-        shipping_option = request.session.get("shipping_type", settings.FREIGHT_DEFAULTS[currency])
+        shipping_option = request.session.get("shipping_type")
+        if shipping_option is None:
+            shipping_option = settings.FREIGHT_DEFAULTS[currency]
     return ShippingForm(request, currency, {"id": shipping_option})
 
 def cart(request, template="shop/cart.html"):
