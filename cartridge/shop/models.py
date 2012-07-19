@@ -635,6 +635,9 @@ class Order(models.Model):
         Remove order fields that are stored in the session, reduce
         the stock level for the items in the order, and then delete
         the cart.
+
+        Also increment the number of times used attribute for the
+        unique discount code that was used, if one was used at all.
         """
         self.save()  # Save the transaction ID.
         for field in self.session_fields:
@@ -649,6 +652,18 @@ class Order(models.Model):
             else:
                 variation.reduce_stock(item.quantity)
                 variation.product.actions.purchased()
+
+        # If a discount code was used and it was a unique discount code
+        # (ie, no_of_allowed_uses > 0) then we increment the number of times
+        # used for the particular discount code.
+        try:
+            discount_code = DiscountCodeUnique.objects.get(code=self.discount_code, allowed_no_of_uses__gt=0)
+        except DiscountCodeUnique.DoesNotExist:
+            pass
+        else:
+            discount_code.use_code()
+            discount_code.save()
+
         request.cart.delete()
 
     def details_as_dict(self):
