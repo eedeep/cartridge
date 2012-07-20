@@ -1,4 +1,4 @@
-import itertools 
+import itertools
 
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
@@ -75,7 +75,10 @@ def product(request, slug, template="shop/product.html"):
                 return response
     fields = [f.name for f in ProductVariation.option_fields()]
     fields += ["sku", "image_id", "total_in_stock", 'default']
-    variations = MultiCurrencyProductVariation.objects.filter(id__in=product.variations.all())
+    variations = MultiCurrencyProductVariation.objects.filter(
+        id__in=product.variations.all(),
+        image__isnull=False,
+    )
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
@@ -148,8 +151,8 @@ def _discount_data(request, discount_form):
     Call _order_totals from the multicurrency template tag library to
     basically simulate what happens during normal page rendering - ie,
     the order total, discount total and shipping total all get set
-    in the context and then referenced in the template code in order to be 
-    displayed to the user. 
+    in the context and then referenced in the template code in order to be
+    displayed to the user.
     """
     updated_context = _order_totals({'request': request})
     for key, val in updated_context.items():
@@ -158,7 +161,7 @@ def _discount_data(request, discount_form):
 
     data = {
        'error_message': ' '.join(list(itertools.chain.from_iterable(discount_form.errors.values()))),
-       'discount_total': updated_context['discount_total'], 
+       'discount_total': updated_context['discount_total'],
        'total_price':  updated_context['order_total'],
        'shipping_total': updated_context['shipping_total'],
     }
@@ -172,10 +175,10 @@ def _discount_form_for_cart(request):
 
 def _shipping_form_for_cart(request, currency):
     """
-    If the user is submitting the form, get the shipping option from the 
+    If the user is submitting the form, get the shipping option from the
     form post. Otherwise, try to grab it from the session in order to
     set it to whatever it is currently (eg in the case of an ajax request
-    coming through to verify the discount code, this is what we want to 
+    coming through to verify the discount code, this is what we want to
     happen). If its not set in the session, then set it to the default
     shipping type for the current session currency.
     """
@@ -216,7 +219,7 @@ def cart(request, template="shop/cart.html"):
             shipping_valid = shipping_form.is_valid()
             if shipping_valid:
                 shipping_form.set_shipping()
-            valid = True if discount_valid and shipping_valid else False 
+            valid = True if discount_valid and shipping_valid else False
 
         if valid:
             if request.is_ajax():
