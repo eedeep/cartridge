@@ -104,9 +104,12 @@ class AddProductForm(forms.Form):
         option_values = zip(*self._product.variations.filter(
             unit_price__isnull=False).values_list(*option_names))
 
-        # check if style is out of stock
+        # Only include variations that have stock and images
         option1_list = dict()
-        variations = self._product.variations.filter(num_in_stock__gt=0)
+        variations = self._product.variations.filter(
+            num_in_stock__gt=0,
+            image__isnull=False,
+        )
         for variation in variations:
             if variation.option1 in option1_list and option1_list[variation.option1] > 0:
                 continue

@@ -87,7 +87,7 @@ def product(request, slug, template="shop/product.html"):
         "images": product.reduced_image_set(),
         "variations": variations,
         "variations_json": variations_json,
-        "has_available_variations": any([v.has_price(session_currency(request)) for v in variations]),
+        "has_available_variations": any(v.has_price(session_currency(request)) for v in variations),
         "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
         }
