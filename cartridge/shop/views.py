@@ -11,6 +11,7 @@ from django.utils import simplejson
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
+from django.db.models import Sum
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -75,16 +76,21 @@ def product(request, slug, template="shop/product.html"):
                 return response
     fields = [f.name for f in ProductVariation.option_fields()]
     fields += ["sku", "image_id", "total_in_stock", 'default']
+
+    # weed out any variations whose colour variation is totally out of stock
+    in_stock_colour_codes = set(zip(*add_product_form.fields['option1'].choices)[0])
     variations = MultiCurrencyProductVariation.objects.filter(
         id__in=product.variations.all(),
+        option1__in=in_stock_colour_codes,
         image__isnull=False,
     )
+
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
     context = {
         "product": product,
-        "images": product.reduced_image_set(),
+        "images": product.reduced_image_set(variations),
         "variations": variations,
         "variations_json": variations_json,
         "has_available_variations": any(v.has_price(session_currency(request)) for v in variations),
