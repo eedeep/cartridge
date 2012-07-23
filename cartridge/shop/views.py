@@ -286,14 +286,18 @@ def checkout_steps(request):
     form = form_class(request, step, initial=initial)
     data = request.POST
     checkout_errors = []
-
     if request.POST.get("back") is not None:
         # Back button in the form was pressed - load the order form
         # for the previous step and maintain the field values entered.
         step -= 1
         form = form_class(request, step, initial=initial)
     elif request.method == "POST":
+        sensitive_card_fields = ("card_number", "card_expiry_month",
+                                 "card_expiry_year", "card_ccv")
         form = form_class(request, step, initial=initial, data=data)
+        request.session['order'] = dict([(k, v) for k, v in form.data.items()
+                                         if k not in ['csrfmiddlewaretoken'] +
+                                         list(sensitive_card_fields)])
         if form.is_valid():
             # Copy the current form fields to the session so that
             # they're maintained if the customer leaves the checkout
@@ -301,8 +305,6 @@ def checkout_steps(request):
             # such as the credit card fields so that they're never
             # stored anywhere.
             request.session["order"] = dict(form.cleaned_data)
-            sensitive_card_fields = ("card_number", "card_expiry_month",
-                                     "card_expiry_year", "card_ccv")
             for field in sensitive_card_fields:
                 if field in request.session["order"]:
                     del request.session["order"][field]
