@@ -238,15 +238,15 @@ class Product(Displayable, Priced, RichText):
 
     @property
     def default_variation(self):
-        url = "http://admin-asia.cottonon.com/admin/shop/product/{0}".format(self.id)
+        url = "http://admin-asia.aws.cottonon.com/admin/shop/product/{0}".format(self.id)
         try:
             v = self.variations.get(default=True)
         except ProductVariation.DoesNotExist: #fail gracefully by falling back to other variation
-            elog.error('No default variation for {0} {1}'.format(self.title, url))
+            elog.error('No default variation for {0} ({1})'.format(self.title, url))
             vs = self.variations.all()
             v = self if vs.count() == 0 else vs[0] #if no variations at all, return Product else first variation
         except MultipleObjectsReturned:
-            elog.error('Multiple default variations for {0} {1}'.format(self.title, url))
+            elog.error('Multiple default variations for {0} ({1})'.format(self.title, url))
             v = self.variations.filter(default=True)[0]
         return v
 
