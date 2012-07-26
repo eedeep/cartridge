@@ -504,6 +504,8 @@ class ProductVariation(Priced, ProductVariationAbstract):
         if self.total_in_stock - amount >= 0:
             self.num_in_stock -= amount
             self.num_in_stock_pool -= amount
+            if self.num_in_stock_pool < 0:
+                self.num_in_stock_pool = 0
             self.save()
             splog.info('SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
             return True

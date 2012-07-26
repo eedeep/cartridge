@@ -1,3 +1,4 @@
+import ipdb
 import itertools
 
 from django.contrib.messages import info
@@ -372,7 +373,6 @@ def checkout_steps(request):
 
 
 def abort(request, transaction_slug, template="shop/aborted.html"):
-    from cottonon_shop.models import ThreeDSecureTransaction
     try:
         threed_txn = ThreeDSecureTransaction.objects.get(transaction_slug=transaction_slug)
         if threed_txn.order:
