@@ -8,6 +8,9 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from mezzanine.conf import settings
 
+import logging
+logger = logging.getLogger("cottonon")
+
 class CartManager(Manager):
 
     def from_request(self, request):
@@ -22,6 +25,14 @@ class CartManager(Manager):
             cart_id = request.session.get("cart", None)
             cart = self.get(last_updated__gte=expiry_time, id=cart_id)
         except self.model.DoesNotExist:
+            try:
+                old_cart = self.get(id=cart_id)
+            except self.model.DoesNotExist: #completely new cart
+                pass
+            else: #found an old expired cart
+                 logging.warning("can not use request cart {}, it expired on {}. Expiry cut off is currently {}".format(
+                     cart_id, old_cart.last_updated.strftime("%c"), expiry_time.strftime("%c"),
+                     ))
             self.filter(last_updated__lt=expiry_time).delete()
             cart = self.create()
             request.session["cart"] = cart.id
