@@ -84,6 +84,8 @@ def initial_order_data(request):
         previous_orders = Order.objects.filter(**previous_lookup).values()[:1]
         if len(previous_orders) > 0:
             initial.update(previous_orders[0])
+            if 'discount_code' in initial:
+                initial.pop('discount_code')
             # Set initial value for "same billing/shipping" based on
             # whether both sets of address fields are all equal.
             shipping = lambda f: "shipping_%s" % f[len("billing_"):]
