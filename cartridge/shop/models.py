@@ -807,6 +807,15 @@ class Cart(models.Model):
                 total += discount.calculate(item.unit_price) * item.quantity
         return total
 
+    def has_no_stock(self):
+        "Return the products of the cart with no stock"
+        no_stock = []
+        for item in self:
+            if item.quantity <= item.variation().total_in_stock:
+                continue
+            no_stock += [item]
+        return no_stock
+
 
 class SelectedProduct(models.Model):
     """

@@ -19,7 +19,7 @@ from mezzanine.utils.views import render, set_cookie
 
 from cartridge.shop import checkout
 from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, ShippingForm
-from cartridge.shop.models import Product, ProductVariation, Order
+from cartridge.shop.models import Product, ProductVariation, Order, Cart
 from cartridge.shop.models import DiscountCode
 from cartridge.shop.utils import recalculate_discount, sign
 
@@ -286,6 +286,9 @@ def checkout_steps(request):
     form = form_class(request, step, initial=initial)
     data = request.POST
     checkout_errors = []
+
+    cart = Cart.objects.from_request(request)
+    no_stock = cart.has_no_stock()
     if request.POST.get("back") is not None:
         # Back button in the form was pressed - load the order form
         # for the previous step and maintain the field values entered.
@@ -298,7 +301,7 @@ def checkout_steps(request):
         request.session['order'] = dict([(k, v) for k, v in form.data.items()
                                          if k not in ['csrfmiddlewaretoken'] +
                                          list(sensitive_card_fields)])
-        if form.is_valid():
+        if form.is_valid() and no_stock == []:
             # Copy the current form fields to the session so that
             # they're maintained if the customer leaves the checkout
             # process, but remove sensitive fields from the session
@@ -367,7 +370,8 @@ def checkout_steps(request):
     form.label_suffix = ''
     context = {"form": form, "CHECKOUT_STEP_FIRST": CHECKOUT_STEP_FIRST,
                "step_title": step_vars["title"], "step_url": step_vars["url"],
-               "steps": checkout.CHECKOUT_STEPS, "step": step}
+               "steps": checkout.CHECKOUT_STEPS, "step": step,
+               'no_stock':no_stock}
     return render(request, template, context)
 
 
