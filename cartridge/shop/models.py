@@ -357,7 +357,7 @@ class ProductOption(models.Model):
     @staticmethod
     def colourName(code):
         try:
-            return ProductOption.objects.get(name=code).display_name
+            return ProductOption.objects.filter(name=code)[0].display_name
         except:
             return code
 
