@@ -2,7 +2,7 @@
 from mezzanine.conf import settings
 
 from cartridge.shop.models import Cart
-
+from cartridge_api.views import shop_ajax_cart_details
 
 class SSLRedirect(object):
 
@@ -33,3 +33,7 @@ class ShopMiddleware(SSLRedirect):
         if not wishlist[0]:
             wishlist = []
         request.wishlist = wishlist
+
+    def process_template_response(self, request, response):
+        response.context_data['minicart_details'] = shop_ajax_cart_details(request, False)
+        return response
