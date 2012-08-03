@@ -35,5 +35,6 @@ class ShopMiddleware(SSLRedirect):
         request.wishlist = wishlist
 
     def process_template_response(self, request, response):
-        response.context_data['minicart_details'] = shop_ajax_cart_details(request, False)
+        if hasattr(response, 'context_data'):
+            response.context_data['minicart_details'] = shop_ajax_cart_details(request, False)
         return response
