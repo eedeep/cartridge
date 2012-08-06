@@ -187,11 +187,15 @@ def _shipping_form_for_cart(request, currency):
     coming through to verify the discount code, this is what we want to
     happen). If its not set in the session, then set it to the default
     shipping type for the current session currency.
+    If the shipping type is not available as an option (eg set to FREE SHIPPING)
+    then use the default, on the assumption that the free shipping value
+    will be re-applied by set_shipping (which takes discount codes into
+    consideration)
     """
     shipping_option = request.POST.get("shipping_option", None)
     if not shipping_option:
         shipping_option = request.session.get("shipping_type")
-        if shipping_option is None:
+        if shipping_option is None or shipping_option not in settings.FREIGHT_COSTS[currency]:
             shipping_option = settings.FREIGHT_DEFAULTS[currency]
     return ShippingForm(request, currency, {"id": shipping_option})
 
