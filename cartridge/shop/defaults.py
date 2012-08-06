@@ -231,7 +231,7 @@ register_setting(
     editable=False,
     default=(
         (_("Recently added"), "-date_added"),
-        (_("Highest rated"), "-rating_average"),
+        #(_("Highest rated"), "-rating_average"),
         (_("Least expensive"), "unit_price"),
         (_("Most expensive"), "-unit_price"),
     ),

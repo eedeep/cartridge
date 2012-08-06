@@ -1,3 +1,4 @@
+import itertools
 
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
@@ -7,18 +8,36 @@ from django.template import RequestContext
 from django.template.defaultfilters import slugify
 from django.template.loader import get_template
 from django.utils import simplejson
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.translation import ugettext as _
+from django.views.decorators.cache import never_cache
+from django.db.models import Sum
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
 from mezzanine.utils.views import render, set_cookie
 
 from cartridge.shop import checkout
-from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet
-from cartridge.shop.models import Product, ProductVariation, Order
+from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, ShippingForm
+from cartridge.shop.models import Product, ProductVariation, Order, Cart
 from cartridge.shop.models import DiscountCode
 from cartridge.shop.utils import recalculate_discount, sign
 
+#TODO remove multicurrency imports from cartridge
+from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
+from multicurrency.utils import session_currency
+from multicurrency.templatetags.multicurrency_tags import \
+    local_currency, formatted_price, _order_totals
+
+#TODO remove cartwatcher imports from cartridge
+try:
+    from cartwatcher.promotions.models import Promotion
+except ImportError: #keep running if cartwatcher not installed
+    Promotion = None
+
+#TODO remove cottonon_shop imports from cartridge
+from cottonon_shop.cybersource import Requires3DSecureVerification
+from cottonon_shop.models import ThreeDSecureTransaction
 
 # Set up checkout handlers.
 handler = lambda s: import_dotted_path(s) if s else lambda *args: None
@@ -32,7 +51,7 @@ def product(request, slug, template="shop/product.html"):
     Display a product - convert the product variations to JSON as well as
     handling adding the product to either the cart or the wishlist.
     """
-    published_products = Product.objects.published(for_user=request.user)
+    published_products = MultiCurrencyProduct.objects.published(for_user=request.user)
     product = get_object_or_404(published_products, slug=slug)
     to_cart = (request.method == "POST" and
                request.POST.get("add_wishlist") is None)
@@ -56,20 +75,35 @@ def product(request, slug, template="shop/product.html"):
                 set_cookie(response, "wishlist", ",".join(skus))
                 return response
     fields = [f.name for f in ProductVariation.option_fields()]
-    fields += ["sku", "image_id"]
-    variations = product.variations.all()
+    fields += ["sku", "image_id", "total_in_stock", 'default']
+
+    # weed out any variations whose colour variation is totally out of stock
+    in_stock_colour_codes = set(zip(*add_product_form.fields['option1'].choices)[0])
+    variations = MultiCurrencyProductVariation.objects.filter(
+        id__in=product.variations.all(),
+        option1__in=in_stock_colour_codes,
+        image__isnull=False,
+    )
+
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
     context = {
         "product": product,
-        "images": product.images.all(),
+        "images": product.reduced_image_set(variations),
         "variations": variations,
         "variations_json": variations_json,
-        "has_available_variations": any([v.has_price() for v in variations]),
+        "has_available_variations": any(v.has_price(session_currency(request)) for v in variations),
         "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
-    }
+        }
+
+    #Get the first promotion for this object
+    if Promotion:
+        #luxury TODO: print the deal's "post applied" message if cart has met requirements.
+        upsell_promotions = Promotion.active.promotions_for_products(request.cart, [product])
+        if upsell_promotions.count()>0:
+            context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
 
 
@@ -118,18 +152,67 @@ def wishlist(request, template="shop/wishlist.html"):
     return response
 
 
+def _discount_data(request, discount_form):
+    """
+    Call _order_totals from the multicurrency template tag library to
+    basically simulate what happens during normal page rendering - ie,
+    the order total, discount total and shipping total all get set
+    in the context and then referenced in the template code in order to be
+    displayed to the user.
+    """
+    updated_context = _order_totals({'request': request})
+    for key, val in updated_context.items():
+        if '_total' in key:
+            updated_context[key] = formatted_price(request, val)
+
+    data = {
+       'error_message': ' '.join(list(itertools.chain.from_iterable(discount_form.errors.values()))),
+       'discount_total': updated_context['discount_total'],
+       'total_price':  updated_context['order_total'],
+       'shipping_total': updated_context['shipping_total'],
+    }
+    return simplejson.dumps(data, cls=DjangoJSONEncoder)
+
+def _discount_form_for_cart(request):
+    discount_code = request.POST.get("discount_code", None)
+    if discount_code is None:
+        discount_code = request.session.get("discount_code", None)
+    return DiscountForm(request, {'discount_code': discount_code})
+
+def _shipping_form_for_cart(request, currency):
+    """
+    If the user is submitting the form, get the shipping option from the
+    form post. Otherwise, try to grab it from the session in order to
+    set it to whatever it is currently (eg in the case of an ajax request
+    coming through to verify the discount code, this is what we want to
+    happen). If its not set in the session, then set it to the default
+    shipping type for the current session currency.
+    If the shipping type is not available as an option (eg set to FREE SHIPPING)
+    then use the default, on the assumption that the free shipping value
+    will be re-applied by set_shipping (which takes discount codes into
+    consideration)
+    """
+    shipping_option = request.POST.get("shipping_option", None)
+    if not shipping_option:
+        shipping_option = request.session.get("shipping_type")
+        if shipping_option is None or shipping_option not in settings.FREIGHT_COSTS[currency]:
+            shipping_option = settings.FREIGHT_DEFAULTS[currency]
+    return ShippingForm(request, currency, {"id": shipping_option})
+
 def cart(request, template="shop/cart.html"):
     """
     Display cart and handle removing items from the cart.
     """
+    currency = session_currency(request)
     cart_formset = CartItemFormSet(instance=request.cart)
-    discount_form = DiscountForm(request, request.POST or None)
+    shipping_form = _shipping_form_for_cart(request, currency)
+    discount_form = _discount_form_for_cart(request)
+
+    valid = False
     if request.method == "POST":
-        valid = True
         if request.POST.get("update_cart"):
             valid = request.cart.has_items()
             if not valid:
-                # Session timed out.
                 info(request, _("Your cart has expired"))
             else:
                 cart_formset = CartItemFormSet(request.POST,
@@ -140,24 +223,57 @@ def cart(request, template="shop/cart.html"):
                     recalculate_discount(request)
                     info(request, _("Cart updated"))
         else:
-            valid = discount_form.is_valid()
-            if valid:
+            discount_valid = discount_form.is_valid()
+            if discount_valid:
                 discount_form.set_discount()
+            shipping_valid = shipping_form.is_valid()
+            if shipping_valid:
+                shipping_form.set_shipping()
+            valid = True if discount_valid and shipping_valid else False
+
         if valid:
-            return redirect("shop_cart")
+            if request.is_ajax():
+                return HttpResponse(_discount_data(request, discount_form), "application/javascript")
+            else:
+                return redirect("shop_checkout")
+
     context = {"cart_formset": cart_formset}
     settings.use_editable()
     if (settings.SHOP_DISCOUNT_FIELD_IN_CART and
         DiscountCode.objects.active().count() > 0):
         context["discount_form"] = discount_form
-    return render(request, template, context)
+    context["shipping_form"] = shipping_form
+    if request.is_ajax():
+        return HttpResponse(_discount_data(request, discount_form), "application/javascript")
+    else:
+        return render(request, template, context)
 
 
+def finalise_order(transaction_id, request, order, remember):
+    # Finalize order - ``order.complete()`` performs
+    # final cleanup of session and cart.
+    # ``order_handler()`` can be defined by the
+    # developer to implement custom order processing.
+    # Then send the order email to the customer.
+    order.transaction_id = transaction_id
+    order.complete(request)
+    # Set the cookie for remembering address details
+    # if the "remember" checkbox was checked.
+    response = redirect("shop_complete")
+    if remember:
+        remembered = "%s:%s" % (sign(order.key), order.key)
+        set_cookie(response, "remember", remembered,
+                   secure=request.is_secure())
+    else:
+        response.delete_cookie("remember")
+    return response
+
+
+@never_cache
 def checkout_steps(request):
     """
     Display the order form and handle processing of each step.
     """
-
     # Do the authentication check here rather than using standard
     # login_required decorator. This means we can check for a custom
     # LOGIN_URL and fall back to our own login view.
@@ -175,22 +291,27 @@ def checkout_steps(request):
     data = request.POST
     checkout_errors = []
 
+    cart = Cart.objects.from_request(request)
+    no_stock = cart.has_no_stock()
     if request.POST.get("back") is not None:
         # Back button in the form was pressed - load the order form
         # for the previous step and maintain the field values entered.
         step -= 1
         form = form_class(request, step, initial=initial)
     elif request.method == "POST":
+        sensitive_card_fields = ("card_number", "card_expiry_month",
+                                 "card_expiry_year", "card_ccv")
         form = form_class(request, step, initial=initial, data=data)
-        if form.is_valid():
+        request.session['order'] = dict([(k, v) for k, v in form.data.items()
+                                         if k not in ['csrfmiddlewaretoken'] +
+                                         list(sensitive_card_fields)])
+        if form.is_valid() and no_stock == []:
             # Copy the current form fields to the session so that
             # they're maintained if the customer leaves the checkout
             # process, but remove sensitive fields from the session
             # such as the credit card fields so that they're never
             # stored anywhere.
             request.session["order"] = dict(form.cleaned_data)
-            sensitive_card_fields = ("card_number", "card_expiry_month",
-                                     "card_expiry_year", "card_ccv")
             for field in sensitive_card_fields:
                 if field in request.session["order"]:
                     del request.session["order"][field]
@@ -221,25 +342,22 @@ def checkout_steps(request):
                     checkout_errors.append(e)
                     if settings.SHOP_CHECKOUT_STEPS_CONFIRMATION:
                         step -= 1
+                except Requires3DSecureVerification as threed_exc:
+                    form.cleaned_data['encryption_key'] = threed_exc.get_xid()
+                    threed_txn = ThreeDSecureTransaction(
+                        card_and_billing_data=form.cleaned_data,
+                        order_id=order.id,
+                        pareq=threed_exc.get_pareq()
+                    )
+                    threed_txn.save()
+                    return threed_exc.get_redirect_response(request, threed_txn.transaction_slug)
                 else:
-                    # Finalize order - ``order.complete()`` performs
-                    # final cleanup of session and cart.
-                    # ``order_handler()`` can be defined by the
-                    # developer to implement custom order processing.
-                    # Then send the order email to the customer.
-                    order.transaction_id = transaction_id
-                    order.complete(request)
-                    order_handler(request, form, order)
-                    checkout.send_order_email(request, order)
-                    # Set the cookie for remembering address details
-                    # if the "remember" checkbox was checked.
-                    response = redirect("shop_complete")
-                    if form.cleaned_data.get("remember") is not None:
-                        remembered = "%s:%s" % (sign(order.key), order.key)
-                        set_cookie(response, "remember", remembered,
-                                   secure=request.is_secure())
-                    else:
-                        response.delete_cookie("remember")
+                    response = finalise_order(
+                        transaction_id,
+                        request,
+                        order,
+                        form.cleaned_data.get('remeber')
+                    )
                     return response
 
             # If any checkout errors, assign them to a new form and
@@ -253,10 +371,27 @@ def checkout_steps(request):
     step_vars = checkout.CHECKOUT_STEPS[step - 1]
     template = "shop/%s.html" % step_vars["template"]
     CHECKOUT_STEP_FIRST = step == checkout.CHECKOUT_STEP_FIRST
+    form.label_suffix = ''
     context = {"form": form, "CHECKOUT_STEP_FIRST": CHECKOUT_STEP_FIRST,
                "step_title": step_vars["title"], "step_url": step_vars["url"],
-               "steps": checkout.CHECKOUT_STEPS, "step": step}
+               "steps": checkout.CHECKOUT_STEPS, "step": step,
+               'no_stock':no_stock}
     return render(request, template, context)
+
+
+def abort(request, transaction_slug, template="shop/aborted.html"):
+    try:
+        threed_txn = ThreeDSecureTransaction.objects.get(transaction_slug=transaction_slug)
+        if threed_txn.order:
+            try:
+                order = Order.objects.get(id=threed_txn.order.id)
+            except Order.DoesNotExist:
+                pass
+            else:
+                order.delete()
+    except ThreeDSecureTransaction.DoesNotExist:
+        raise Http404
+    return render(request, template)
 
 
 def complete(request, template="shop/complete.html"):

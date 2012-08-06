@@ -8,6 +8,9 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from mezzanine.conf import settings
 
+import logging
+logger = logging.getLogger("cottonon")
+
 class CartManager(Manager):
 
     def from_request(self, request):
@@ -22,11 +25,21 @@ class CartManager(Manager):
             cart_id = request.session.get("cart", None)
             cart = self.get(last_updated__gte=expiry_time, id=cart_id)
         except self.model.DoesNotExist:
+            try:
+                old_cart = self.get(id=cart_id)
+            except self.model.DoesNotExist: #completely new cart
+                pass
+            else: #found an old expired cart
+                 logging.warning("can not use request cart {}, it expired on {}. Expiry cut off is currently {}".format(
+                     cart_id, old_cart.last_updated.strftime("%c"), expiry_time.strftime("%c"),
+                     ))
             self.filter(last_updated__lt=expiry_time).delete()
             cart = self.create()
             request.session["cart"] = cart.id
         else:
+            cart.timestamp_save_only = True #provided so promotions only apply when cart changes
             cart.save()  # Update timestamp.
+            cart.timestamp_save_only = False
         return cart
 
 
@@ -156,8 +169,8 @@ class ProductVariationManager(Manager):
         mCode, style, size = sku.split("-")
         if not mCode or not style or not size:
             raise ObjectDoesNotExist
-        return self.get(product__master_item_code=mCode, option1=size, option2=style)
-            
+        return self.get(product__master_item_code=mCode, option1=style, option2=size)
+
 
 class ProductActionManager(Manager):
 
@@ -212,11 +225,18 @@ class DiscountCodeManager(Manager):
             Q(min_purchase__lte=cart.total_price())
         )
         usages_remaining_valid = (
-            Q(allowed_no_of_uses=0) | 
+            Q(allowed_no_of_uses=0) |
             Q(no_of_times_used__lt=F('allowed_no_of_uses'))
         )
 
         discount = self.active().get(total_price_valid, usages_remaining_valid, code=code)
+
+        # If no products or categories are set them assume the discount is
+        # store wide.
+        if discount.products.all().count() == 0 and \
+                discount.categories.all().count() == 0:
+            return discount
+
         discount_categories = discount.categories.all()
         skus = [item.sku for item in cart]
         # XXX: Required import as managers
@@ -224,13 +244,13 @@ class DiscountCodeManager(Manager):
         cart_products = Product.objects.filter(variations__sku__in=skus)
         valid_categories = cart_products.filter(categories__in=discount_categories)
 
-        # This does a SQL INTERSECT operation on the products on the discount code and 
+        # This does a SQL INTERSECT operation on the products on the discount code and
         # the products in their cart. If any results, then it's a valid discount code.
         valid_products = Product.objects.filter(variations__sku__in=skus) & discount.products.all()
 
         # So basically here we're confirming that the punter has at least 1 product
         # in their cart which is valid for the discount code's product or category restrictions
-        # If so then it's a valid code that will only be applied to those products 
+        # If so then it's a valid code that will only be applied to those products
         # (see DiscountCode.calculate_cart() for how that happens)
         if valid_products.count() == 0 and valid_categories.count() == 0:
             raise self.model.DoesNotExist

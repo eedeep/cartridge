@@ -4,8 +4,13 @@ from datetime import datetime
 from itertools import dropwhile, takewhile
 from locale import localeconv
 from re import match
+from decimal import Decimal
 
 from django import forms
+from django.forms import widgets
+from django.utils.html import escape, conditional_escape
+from django.utils.encoding import StrAndUnicode, force_unicode
+
 from django.forms.models import BaseInlineFormSet, ModelFormMetaclass
 from django.forms.models import inlineformset_factory
 from django.utils.datastructures import SortedDict
@@ -18,7 +23,12 @@ from mezzanine.core.templatetags.mezzanine_tags import thumbnail
 from cartridge.shop import checkout
 from cartridge.shop.models import Product, ProductOption, ProductVariation
 from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
-from cartridge.shop.utils import make_choices, set_locale, set_shipping
+from cartridge.shop.utils import make_choices, set_locale, set_shipping, set_discount
+
+from countries.models import Country
+
+from multicurrency.templatetags.multicurrency_tags import local_currency
+
 
 ADD_PRODUCT_ERRORS = {
     "invalid_options": _("The selected options are currently unavailable."),
@@ -26,6 +36,31 @@ ADD_PRODUCT_ERRORS = {
     "no_stock_quantity": _("The selected quantity is currently unavailable."),
 }
 
+
+class JoshRadioInput(widgets.RadioInput):
+    def render(self, name=None, value=None, attrs=None, choices=()):
+        name = name or self.name
+        value = value or self.value
+        attrs = attrs or self.attrs
+        if 'id' in self.attrs:
+            label_for = ' for="%s_%s"' % (self.attrs['id'], self.index)
+        else:
+            label_for = ''
+        choice_label = conditional_escape(force_unicode(self.choice_label))
+        return mark_safe(u'%s<label%s>%s</label>' % (self.tag(), label_for, choice_label))
+
+class JoshRadioFieldRenderer(widgets.RadioFieldRenderer):
+    def __iter__(self):
+        for i, choice in enumerate(self.choices):
+            yield JoshRadioInput(self.name, self.value, self.attrs.copy(), choice, i)
+
+    def __getitem__(self, idx):
+        choice = self.choices[idx] # Let the IndexError propogate
+        return JoshRadioInput(self.name, self.value, self.attrs.copy(), choice, idx)
+
+class JoshRadioSelect(forms.RadioSelect):
+    """ Custom widget to move labels outside size widget on product detail page """
+    renderer = JoshRadioFieldRenderer
 
 class AddProductForm(forms.Form):
     """
@@ -68,13 +103,39 @@ class AddProductForm(forms.Form):
             for f in ProductVariation.option_fields()])
         option_values = zip(*self._product.variations.filter(
             unit_price__isnull=False).values_list(*option_names))
+
+        # Only include variations that have stock and images
+        option1_list = dict()
+        variations = self._product.variations.filter(
+            num_in_stock__gt=0,
+            image__isnull=False,
+        )
+        for variation in variations:
+            if variation.option1 in option1_list and option1_list[variation.option1] > 0:
+                continue
+            option1_list[variation.option1] = variation.total_in_stock > 0
+
         if option_values:
-            for i, name in enumerate(option_names):
-                values = filter(None, set(option_values[i]))
-                if values:
-                    field = forms.ChoiceField(label=option_labels[i],
-                                              choices=make_choices(values))
-                    self.fields[name] = field
+           for i, name in enumerate(option_names):
+               if name == 'option1':
+                   # Don't display style if it's out of stock
+                   values = filter(lambda x: x in option1_list and option1_list[x],
+                                   set(option_values[i]))
+                   if len(values) == 0 and len(option_values[i]) > 0:
+                       values = [option_values[i][0]]
+               else:
+                   values = filter(None, set(option_values[i]))
+               if values:
+                   choices = make_choices(
+                       ProductOption.objects.filter(name__in=values,
+                                                    type=i+1).order_by(
+                           "ranking").values_list("name", flat=True))
+                   kwargs = {"label":(option_labels[i]),
+                             "choices":[(x[0], ProductOption.colourName(x[1])) for x in choices]}
+                   if name == "option%s"%settings.OPTION_SIZE: #use radio for size
+                        kwargs["widget"] = JoshRadioSelect
+                   field = forms.ChoiceField(**kwargs)
+                   self.fields[name] = field
 
     def clean(self):
         """
@@ -129,7 +190,7 @@ class CartItemForm(forms.ModelForm):
         """
         Validate that the given quantity is available.
         """
-        variation = ProductVariation.objects.get(sku=self.instance.sku)
+        variation = ProductVariation.objects.get_by_sku(sku=self.instance.sku)
         quantity = self.cleaned_data["quantity"]
         if not variation.has_stock(quantity - self.instance.quantity):
             error = ADD_PRODUCT_ERRORS["no_stock_quantity"]
@@ -198,6 +259,39 @@ class FormsetForm(object):
                 return self._fieldset(filter_func(*filter_args.groups()))
         raise AttributeError(name)
 
+class ShippingForm(forms.Form):
+    id = forms.ChoiceField()
+    def __init__(self, request, currency, data=None, initial=None):
+        super(ShippingForm, self).__init__(data=data, initial=initial)
+        self._shipping_options = settings.FREIGHT_COSTS.get(currency, None)
+        if self._shipping_options:
+            choices =  [(k,"%s (%s) %s"%(v[3], local_currency({"request":request}, v[0]), k.title())) for (k,v) in self._shipping_options.items()]
+        else:
+            choices = []
+        self.fields["id"] = forms.ChoiceField(choices=choices)
+        self._request = request
+        self._currency = currency
+
+    def set_shipping(self):
+        """
+        Assigns the session variables for the shipping options.
+        """
+        shipping_option = self.cleaned_data["id"]
+        discount_code = self._request.session.get("discount_code", "")
+        try:
+            discount = DiscountCode.objects.get_valid(code=discount_code, cart=self._request.cart)
+        except DiscountCode.DoesNotExist:
+            discount = None
+        if shipping_option is not None:
+            shipping_cost = Decimal(str(self._shipping_options.get(shipping_option)[0])) #from settings.FREIGHT_OPTIONS
+            set_shipping(self._request, shipping_option, shipping_cost)
+            if discount:
+                total = self._request.cart.calculate_discount(discount)
+                if discount.free_shipping:
+                    set_shipping(self._request, _("Free shipping"), 0)
+                self._request.session["free_shipping"] = discount.free_shipping
+                self._request.session["discount_total"] = total
+
 
 class DiscountForm(forms.ModelForm):
 
@@ -225,6 +319,7 @@ class DiscountForm(forms.ModelForm):
                 discount = DiscountCode.objects.get_valid(code=code, cart=cart)
                 self._discount = discount
             except DiscountCode.DoesNotExist:
+                set_discount(self._request, None) #remove discount
                 error = _("The discount code entered is invalid.")
                 raise forms.ValidationError(error)
         return code
@@ -240,7 +335,15 @@ class DiscountForm(forms.ModelForm):
                 set_shipping(self._request, _("Free shipping"), 0)
             self._request.session["free_shipping"] = discount.free_shipping
             self._request.session["discount_code"] = discount.code
+            if self._request.session.has_key('order'):
+                self._request.session['order']['discount_code'] = discount.code
             self._request.session["discount_total"] = total
+        else:
+            self._request.session.pop("discount_code", None)
+            self._request.session.pop("discount_total", None)
+            self._request.session.pop("free_shipping", None)
+            if self._request.session.has_key('order'):
+                self._request.session['order'].pop('discount_code', None)
 
 
 class OrderForm(FormsetForm, DiscountForm):
@@ -255,8 +358,10 @@ class OrderForm(FormsetForm, DiscountForm):
         label=_("My delivery details are the same as my billing details"))
     remember = forms.BooleanField(required=False, initial=True,
         label=_("Remember my address for next time"))
+    terms = forms.BooleanField(required=True, initial=False,
+        label=_("I agree to Terms and Conditions"))
     card_name = forms.CharField(label=_("Cardholder name"))
-    card_type = forms.ChoiceField(widget=forms.RadioSelect,
+    card_type = forms.ChoiceField(widget=JoshRadioSelect,
         choices=make_choices(settings.SHOP_CARD_TYPES))
     card_number = forms.CharField()
     card_expiry_month = forms.ChoiceField(
@@ -303,10 +408,10 @@ class OrderForm(FormsetForm, DiscountForm):
         super(OrderForm, self).__init__(request, data=data, initial=initial)
         self._checkout_errors = errors
         settings.use_editable()
-        # Hide Discount Code field if no codes are active.
-        if (DiscountCode.objects.active().count() == 0 or
-            not settings.SHOP_DISCOUNT_FIELD_IN_CHECKOUT):
-            self.fields["discount_code"].widget = forms.HiddenInput()
+
+        # Always hide Discount Code field, it will only get displayed once
+        # on the cart field and from then on it will be a hidden input.
+        self.fields["discount_code"].widget = forms.HiddenInput()
 
         # Determine which sets of fields to hide for each checkout step.
         hidden = None
@@ -334,6 +439,20 @@ class OrderForm(FormsetForm, DiscountForm):
         choices = make_choices(range(year, year + 21))
         self.fields["card_expiry_year"].choices = choices
 
+        for prefix in ['billing_detail_', 'shipping_detail_']:
+            country = prefix + 'country'
+            if (country in initial and initial[country] == 'HONG KONG'):
+                self.fields[prefix + 'postcode'].required = False
+
+        # Display country field as a list
+        if first:
+            self.fields['billing_detail_country'] = forms.ChoiceField(
+                label=_('Country'),
+                choices=Country.objects.all().values_list('name', 'printable_name'))
+            self.fields['shipping_detail_country'] = forms.ChoiceField(
+                label=_('Country'),
+                choices=Country.objects.all().values_list('name', 'printable_name'))
+
     def clean_card_expiry_year(self):
         """
         Ensure the card expiry doesn't occur in the past.
@@ -348,6 +467,19 @@ class OrderForm(FormsetForm, DiscountForm):
         if year == now.year and month < now.month:
             raise forms.ValidationError(_("A valid expiry date is required."))
         return str(year)
+
+    def clean_billing_detail_country(self):
+        return self.check_country(self.cleaned_data['billing_detail_country'])
+
+    def clean_shipping_detail_country(self):
+        return self.check_country(self.cleaned_data['shipping_detail_country'])
+
+    def check_country(self, country):
+        try:
+            Country.objects.get(name=country)
+        except:
+            raise forms.ValidationError('Country does not exist')
+        return country
 
     def clean(self):
         """
@@ -430,7 +562,7 @@ class ProductAdminForm(forms.ModelForm):
         instance = kwargs.get("instance")
         if instance:
             queryset = Product.objects.exclude(id=instance.id)
-            self.fields["related_products"].queryset = queryset 
+            self.fields["related_products"].queryset = queryset
             self.fields["upsell_products"].queryset = queryset
 
 

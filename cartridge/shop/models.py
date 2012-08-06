@@ -3,11 +3,11 @@ from datetime import datetime
 from decimal import Decimal, ROUND_UP
 from operator import iand, ior
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.db.models import CharField, Q
 from django.db.models.base import ModelBase
 from django.utils.translation import ugettext_lazy as _
+from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
 from _mysql_exceptions import OperationalError
 from django.utils import simplejson
 
@@ -17,13 +17,30 @@ from mezzanine.core.models import Displayable, RichText, Orderable, CONTENT_STAT
 from mezzanine.generic.fields import RatingField
 from mezzanine.pages.models import Page
 
-from taggit.managers import TaggableManager
+from cartridge.taggit.managers import TaggableManager
+from cartridge.taggit.models import Tag, TagFacet
 
 from cartridge.shop import fields, managers
 from cartridge.shop.regexinv import invert
 
+from multicurrency.utils import session_currency
+
+try: #if south is installed, add a rule to ignore the fake manager field
+    from south.modelsinspector import add_ignored_fields
+    add_ignored_fields(["^cartridge\.taggit\.managers"])
+except ImportError:
+    pass
+
 import logging
 splog = logging.getLogger('stockpool.log')
+elog = logging.getLogger('cottonon.errors')
+
+
+#session values
+SESSION_SHIPPINGTYPE = "shipping_type"
+SESSION_SHIPPINGTOTAL = "shipping_total"
+SESSION_DISCOUNTCODE = "discount_code"
+SESSION_DISCOUNTTOTAL = "discount_total"
 
 
 class Category(Page, RichText):
@@ -39,6 +56,9 @@ class Category(Page, RichText):
     combined = models.BooleanField(default=True, help_text="If checked, "
         "products must match all specified filters, otherwise products "
         "can match any specified filter.")
+    hide_sizes = models.BooleanField(_("Hide size filter"),
+            help_text=_("If ticked the size filter will be hidden when the category is displayed."),
+            default=False)
 
     class Meta:
         verbose_name = _("Product category")
@@ -156,6 +176,9 @@ class Product(Displayable, Priced, RichText):
     in_stock = models.BooleanField(_("In Stock"), default=False)
     ranking = models.IntegerField(default=500)
 
+    product_colours = CharField(_("Available colours"), blank=True, default="", max_length=500)
+    product_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
+
     tags = TaggableManager()
     objects = DisplayableManager()
     search_fields = ("master_item_code",)
@@ -174,61 +197,82 @@ class Product(Displayable, Priced, RichText):
 
     @property
     def available_sizes(self): #TODO: potentially denormalise this onto the model
-        sizes = self.variations.all().values_list("option1", flat=True)
-        return sizes
+        return self.product_sizes.split(",")
 
     @property
-    def available_colours(self): #TODO: potentially denormalise this onto the model
-        colours = self.variations.all().values_list("option2", flat=True)
-        return colours 
+    def available_colours(self):
+        return self.product_colours.split(",")
+
+    @property
+    def available_brands(self): #TODO: potentially denormalise
+        results = self.tags.filter(tagfacet__name=settings.FACET_BRAND).values_list("name", flat=True)
+        return results
+
+    @property
+    def available_styles(self): #TODO: potentially denormalise
+        results = self.tags.filter(tagfacet__name=settings.FACET_STYLE).values_list("name", flat=True)
+        return results
 
     #XXX replace these two methods with tastypie calls
     def colours_json(self):
-        colours = self.variations.all().values_list("option2", flat=True)
+        colours = self.variations.all().values_list("option%s"%settings.OPTION_STYLE, flat=True)
         json = []
         for c in colours: json.append({"colour":c})
         return simplejson.dumps(json)
 
     def sizes_json(self):
-        cs = self.variations.all().values_list("option1", flat=True)
+        cs = self.variations.all().values_list("option%s"%settings.OPTION_SIZE, flat=True)
         json = []
         for c in cs: json.append({"size":c})
         return simplejson.dumps(json)
 
+    def brands_json(self):
+        json = self.tags.filter(tagfacet__name="brand").values_list("id", "display_name", flat=True)
+        #json = []
+        return simplejson.dumps(json)
+
+    def styles_json(self):
+        #json = ""
+        json = self.tags.filter(tagfacet__name="style").values_list("id", "display_name", flat=True)
+        return simplejson.dumps(json)
+
+    @property
+    def default_variation(self):
+        url = "http://admin-asia.aws.cottonon.com/admin/shop/product/{0}".format(self.id)
+        try:
+            v = self.variations.get(default=True)
+        except ProductVariation.DoesNotExist: #fail gracefully by falling back to other variation
+            elog.error('No default variation for {0} ({1})'.format(self.title, url))
+            vs = self.variations.all()
+            v = self if vs.count() == 0 else vs[0] #if no variations at all, return Product else first variation
+        except MultipleObjectsReturned:
+            elog.error('Multiple default variations for {0} ({1})'.format(self.title, url))
+            v = self.variations.filter(default=True)[0]
+        return v
 
     @property
     def size_chart(self):
         """
         Return a slug that suggests which size chart to use for this product.
-        Use the top category as a cue in most situations, but special business rules for 
-        Shop, Typo, Kids and Sale categories, and when the only size available is solid or osfa.
+        Use the product categories to select the html size guide subsection.
         """
-        #ignore shop and sale categories when predicting size chart
-        cats = self.categories.exclude(title__in=["Shop", "Sale"]).filter(parent=None) 
-        sizes = self.variations.all().values_list("option1", flat=True)
-        
-        #some sizes have no chart
-        if len(sizes)==1 and any(x in ["SOLID", "OSFA"] for x in sizes):             
-            return None
-
-        #if "Thongs" in self.title: return "shoes"
-        #usually return top category
-        if cats.count()>0:             
-            #Typo products dont have size charts
-            # TODO: This should be moved to the settings file as excluded from size_filters
-            if cats[0].title in ["TYPO"]: 
-                return None 
-            #product in Kids/Accessories/Footwear should show appropriate size guide
-            if cats[0].title in ["KIDS"] and self.categories.filter(title="FOOTWEAR").count()>0: 
-                return "kidsfootwear"             
-            return cats[0]
-        else: 
-            subcats=self.categories.filter(title="SALE").exclude(parent=None)
-            if subcats.count()>0:
-                #Sale items return parent title eg MENS/SALE returns MENS.
-                return subcats[0].parent.title 
-        return "default"
-
+        categories = self.categories.all().values_list('id', flat=True)
+        for cat_id, name in ((822, None),
+                             (872, 'mens-shoes'),
+                             (857, 'kidsfootwear'),
+                             (1747, 'kidsfootwear'),
+                             (924, 'body'),
+                             (923, 'rubi'),
+                             (847, 'kids'),
+                             (860, 'men'),
+                             (899, 'women')):
+            if cat_id in categories:
+                sizes = [x.upper() for x in self.available_sizes]
+                if (len(sizes)==1 and
+                    any(x in ["SOLID", "OSFA"] for x in sizes)):
+                    return None
+                return name
+        return None
 
     def copy_default_variation(self):
         """
@@ -241,11 +285,20 @@ class Product(Displayable, Priced, RichText):
         if default.image:
             self.image = default.image.file.name
         self.save()
-        
+
     def save(self, *args, **kwargs):
         # Update in stock flag.
         # XXX: stockpool update needed
-        self.in_stock = (self.variations.filter(num_in_stock__gte=10).count() > 0)
+        self.in_stock = False
+        for variation in self.variations.all():
+            if variation.has_stock():
+                self.in_stock = True
+                break
+
+        #store available variation colours on the product
+        style_field = "option%i" % settings.OPTION_STYLE
+        self.product_colours = ",".join(set(self.variations.values_list(style_field,flat=True)))
+        self.product_sizes = ",".join(set(self.variations.values_list("option%i"%settings.OPTION_SIZE, flat=True)))
         super(Product, self).save(*args, **kwargs)
 
     def admin_thumb(self):
@@ -291,13 +344,22 @@ class ProductOption(models.Model):
     """
     type = models.IntegerField(_("Type"),
                                choices=settings.SHOP_OPTION_TYPE_CHOICES)
-    name = fields.OptionField(_("Name"))
+    display_name = fields.CharField(blank=True, max_length=100) #eg "red"
+    name = fields.OptionField(_("Name")) #eg an RMS colour code like 04
+
     ranking = models.IntegerField(default=100)
 
     objects = managers.ProductOptionManager()
 
     def __unicode__(self):
         return "%s: %s" % (self.get_type_display(), self.name)
+
+    @staticmethod
+    def colourName(code):
+        try:
+            return ProductOption.objects.get(name=code).display_name
+        except:
+            return code
 
     class Meta:
         verbose_name = _("Product option")
@@ -319,17 +381,14 @@ class ProductVariationMetaclass(ModelBase):
 
 class ProductVariationAbstract(models.Model):
     """
-    Product Variation abstract used to extend the 
+    Product Variation abstract used to extend the
     cartridge base functionality
     """
-    
+
     # Stock pool, Reserved stock for online store
     num_in_stock_pool = models.PositiveIntegerField(_("Number in Stock Pool"),
                                             blank=True,
                                             default=0)
-    # Store the RMS sellcode on the product variation                                            
-    # sellcode_code = models.CharField(max_length=32)
- 
     class Meta:
         abstract = True
 
@@ -341,6 +400,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
     """
 
     product = models.ForeignKey("Product", related_name="variations")
+    sku = fields.SKUField(unique=True)
     num_in_stock = models.IntegerField(_("Number in stock"), blank=True,
                                        null=True)
     default = models.BooleanField(_("Default"))
@@ -361,8 +421,12 @@ class ProductVariation(Priced, ProductVariationAbstract):
         options = []
         for field in self.option_fields():
             if getattr(self, field.name) is not None:
+                if field.name == 'option1':
+                    value = ProductOption.colourName(getattr(self, field.name))
+                else:
+                    value = getattr(self, field.name)
                 options.append("%s: %s" % (unicode(field.verbose_name),
-                                           getattr(self, field.name)))
+                                           value))
         return ("%s %s" % (unicode(self.product), ", ".join(options))).strip()
 
     def get_absolute_url(self):
@@ -417,20 +481,19 @@ class ProductVariation(Priced, ProductVariationAbstract):
     @property
     def total_in_stock(self):
         """
-        Get the total stock levels `Stock on hand + Stock Pool`
+        Get the total stock levels.
+        If stock_pool > STOCK_POOL_CUTOFF: stock - STOCK_THRHESHOLD
+        If stock_pool <= 0: stock - STOCK_POOL_THRESHOLD
         """
-        # set threshold based on product category
-        actual_num_in_stock = self.num_in_stock - settings.STOCK_THRESHOLD
-        for category in Category.objects.filter(titles__in=settings.NO_THRESHOLD_CATEGORIES):
-            if category in self.product.categories.all():
-                actual_num_in_stock = self.num_in_stock-1
-
-        # If the actual_num_in_stock is less than the stockpool
-        # then only return the stockpool
-        if self.num_in_stock_pool > actual_num_in_stock:
-            return self.num_in_stock_pool
+        stock = self.num_in_stock
+        stock_pool = self.num_in_stock_pool
+        if stock_pool > settings.STOCK_POOL_CUTOFF:
+            threshold = settings.STOCK_POOL_THRESHOLD
         else:
-            return actual_num_in_stock
+            threshold = settings.STOCK_THRESHOLD
+        if stock - threshold > 0:
+            return stock - threshold
+        return 0
 
     def reduce_stock(self, amount):
         """
@@ -438,26 +501,18 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         splog.info('Reducing stock for sku: %s, by amount: %s, from total stock: %s' % (self.sku, amount, self.total_in_stock))
         splog.info('SOH: %s, SP:%s' % (self.num_in_stock, self.num_in_stock_pool))
-        if amount <= self.num_in_stock_pool:
-            # Take only from the num_in_stock_pool
-            self.num_in_stock_pool -= amount
-            # if the amount is less than the number in the stock pool (less threshold)
-            # then remove the amount from SOH
-            if amount < (self.num_in_stock-settings.STOCK_THRESHOLD):
-                self.num_in_stock -= amount
-                splog.info('Case-1 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
-            else:
-                # Otherwise the reduce the SOH to threshold level
-                self.num_in_stock = settings.STOCK_THRESHOLD
-                splog.info('Case-2 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
-        else:
-            # Take from num_in_stock_pool first then num_in_stock 
-            self.num_in_stock_pool = 0
+        if self.total_in_stock - amount >= 0:
             self.num_in_stock -= amount
-            splog.info('Case-3 SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
+            self.num_in_stock_pool -= amount
+            if self.num_in_stock_pool < 0:
+                self.num_in_stock_pool = 0
+            self.save()
+            splog.info('SOH: %s, SP: %s' % (self.num_in_stock, self.num_in_stock_pool))
+            return True
+        return False
 
     @property
-    def sku(self):
+    def alternate_sku(self):
         """
         SKU is derived from the ``product.master_item_code`` and selected options
         """
@@ -475,27 +530,29 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         Convenience property for getting the legacy actual_item_code
         This code is simply made up of the master_item_code and the style option
-        """     
-        return "%s-%s" % (self.master_item_code, self.options()[0]) 
+        """
+        return "%s-%s" % (self.master_item_code, self.options()[0])
 
 class Order(models.Model):
 
     billing_detail_first_name = CharField(_("First name"), max_length=100)
     billing_detail_last_name = CharField(_("Last name"), max_length=100)
-    billing_detail_street = CharField(_("Street"), max_length=100)
-    billing_detail_city = CharField(_("City/Suburb"), max_length=100)
-    billing_detail_state = CharField(_("State/Region"), max_length=100)
-    billing_detail_postcode = CharField(_("Zip/Postcode"), max_length=10)
+    billing_detail_street = CharField(_("Street 1"), max_length=32)
+    billing_detail_street2 = CharField(_("Street 2"), max_length=32, default="", blank=True)
     billing_detail_country = CharField(_("Country"), max_length=100)
+    billing_detail_postcode = CharField(_("Zip/Postcode"), max_length=10)
+    billing_detail_city = CharField(_("City/Suburb"), max_length=100)
+    billing_detail_state = CharField(_("State/Region"), max_length=12)
     billing_detail_phone = CharField(_("Phone"), max_length=20)
     billing_detail_email = models.EmailField(_("Email"))
     shipping_detail_first_name = CharField(_("First name"), max_length=100)
     shipping_detail_last_name = CharField(_("Last name"), max_length=100)
-    shipping_detail_street = CharField(_("Street"), max_length=100)
-    shipping_detail_city = CharField(_("City/Suburb"), max_length=100)
-    shipping_detail_state = CharField(_("State/Region"), max_length=100)
-    shipping_detail_postcode = CharField(_("Zip/Postcode"), max_length=10)
+    shipping_detail_street = CharField(_("Street 1"), max_length=32)
+    shipping_detail_street2 = CharField(_("Street 2"), max_length=32, default="", blank=True)
     shipping_detail_country = CharField(_("Country"), max_length=100)
+    shipping_detail_postcode = CharField(_("Zip/Postcode"), max_length=10)
+    shipping_detail_city = CharField(_("City/Suburb"), max_length=100)
+    shipping_detail_state = CharField(_("State/Region"), max_length=12)
     shipping_detail_phone = CharField(_("Phone"), max_length=20)
     additional_instructions = models.TextField(_("Additional instructions"),
                                                blank=True)
@@ -570,6 +627,7 @@ class Order(models.Model):
             self.total += self.shipping_total
         if self.discount_total is not None:
             self.total -= self.discount_total
+        self.currency = session_currency(request)
         self.save()  # We need an ID before we can add related items.
         for item in request.cart:
             product_fields = [f.name for f in SelectedProduct._meta.fields]
@@ -581,6 +639,9 @@ class Order(models.Model):
         Remove order fields that are stored in the session, reduce
         the stock level for the items in the order, and then delete
         the cart.
+
+        Also increment the number of times used attribute for the
+        unique discount code that was used, if one was used at all.
         """
         self.save()  # Save the transaction ID.
         for field in self.session_fields:
@@ -593,10 +654,20 @@ class Order(models.Model):
             except ProductVariation.DoesNotExist:
                 pass
             else:
-                if variation.num_in_stock is not None:
-                    variation.num_in_stock -= item.quantity
-                    variation.save()
+                variation.reduce_stock(item.quantity)
                 variation.product.actions.purchased()
+
+        # If a discount code was used and it was a unique discount code
+        # (ie, no_of_allowed_uses > 0) then we increment the number of times
+        # used for the particular discount code.
+        try:
+            discount_code = DiscountCodeUnique.objects.get(code=self.discount_code, allowed_no_of_uses__gt=0)
+        except DiscountCodeUnique.DoesNotExist:
+            pass
+        else:
+            discount_code.use_code()
+            discount_code.save()
+
         request.cart.delete()
 
     def details_as_dict(self):
@@ -623,6 +694,25 @@ class Order(models.Model):
         return "<a href='%s?format=pdf'>%s</a>" % (url, text)
     invoice.allow_tags = True
     invoice.short_description = ""
+
+    def receipt_order_items(self):
+        """
+        Return a simplified data structure containing the essential
+        order item details required for rending the order receipt
+        email templates. The reason for doing this is that celery
+        running asychronously does not play nicely with retreiving
+        related model instaces off of the order (ie, order.items.all())
+        - we end up just getting an empty list, which is obviously
+        not what we want.
+        """
+        items = []
+        for i in self.items.all():
+            items.append({
+                'quantity': i.quantity,
+                'description': i.description,
+                'unit_price': i.unit_price,
+            })
+        return items
 
 
 class Cart(models.Model):
@@ -675,7 +765,7 @@ class Cart(models.Model):
         """
         Template helper function - sum of all costs of item quantities.
         """
-        return sum([item.total_price for item in self])
+        return sum([item.total for item in self])
 
     def skus(self):
         """
@@ -688,6 +778,9 @@ class Cart(models.Model):
         """
         Returns the upsell products for each of the items in the cart.
         """
+        # HACK: Get the cart back up and running. Comment this out because
+        # sku no longer exists!
+        return []
         cart = Product.objects.filter(variations__sku__in=self.skus())
         published_products = Product.objects.published()
         for_cart = published_products.filter(upsell_products__in=cart)
@@ -714,6 +807,15 @@ class Cart(models.Model):
                 total += discount.calculate(item.unit_price) * item.quantity
         return total
 
+    def has_no_stock(self):
+        "Return the products of the cart with no stock"
+        no_stock = []
+        for item in self:
+            if item.quantity <= item.variation().total_in_stock:
+                continue
+            no_stock += [item]
+        return no_stock
+
 
 class SelectedProduct(models.Model):
     """
@@ -736,16 +838,30 @@ class SelectedProduct(models.Model):
         self.total_price = self.unit_price * self.quantity
         super(SelectedProduct, self).save(*args, **kwargs)
 
-
 class CartItem(SelectedProduct):
 
     cart = models.ForeignKey("Cart", related_name="items")
     url = CharField(max_length=200)
     image = CharField(max_length=200, null=True)
 
+    @property
+    def total(self):
+        """ total_price including promotion discount if available """
+        t = self.total_price
+        promotion_discount = getattr(self, "promotion_discount", Decimal("0.0"))
+        if promotion_discount>0:
+            t -= promotion_discount
+        return t
+
+
     def get_absolute_url(self):
         return self.url
 
+    def variation(self):
+        try:
+            return ProductVariation.objects.get(sku=self.sku)
+        except:
+            return None
 
 class OrderItem(SelectedProduct):
     """
@@ -970,7 +1086,7 @@ class DiscountCode(Discount, DiscountCodeUniqueAbstract):
             if products.filter(variations__sku=item.sku).count()>0: #apply a discount to this product
                 discount += self.calculate(item.total_price)
         discount = discount.quantize(Decimal('0.01'), rounding=ROUND_UP)
-        return discount    
+        return discount
 
     class Meta:
         verbose_name = _("Discount code")
@@ -1007,7 +1123,7 @@ class DiscountCodeUnique(DiscountCode):
         verbose_name = 'Unique Discount Code'
         verbose_name_plural = 'Unique Discount Codes'
 
-class CategoryPage(models.Model):
+class CategoryTheme(models.Model):
     """ Cottonon Brand Pages ... a "skin" for the category page """
     category = models.ForeignKey(Category, unique=True)
     name = models.CharField(max_length=60, help_text="eg July Refresh 2012")
@@ -1015,7 +1131,6 @@ class CategoryPage(models.Model):
     status = models.IntegerField(_("Status"),
             choices=CONTENT_STATUS_CHOICES,
             default=CONTENT_STATUS_DRAFT)
-
     publish_date = models.DateTimeField(_("Published from"),
             help_text=_("With published checked, won't be shown until this time"),
             blank=True, null=True)
@@ -1023,17 +1138,20 @@ class CategoryPage(models.Model):
             help_text=_("With published checked, won't be shown after this time"),
             blank=True, null=True)
 
+    class Meta:
+        db_table = "shop_categorypage"
+
     just_arrived = models.ForeignKey(Category, related_name='catergorypage_just_arrived_set', help_text=_("Select a category and its featured products will display on the brand page"))
 
     objects = PublishedManager()
 
     def __unicode__(self):
         return self.name
-    
+
     def save(self, *args, **kwargs):
         if self.publish_date is None:
             self.publish_date = datetime.now()
-        super(CategoryPage, self).save(*args, **kwargs)
+        super(CategoryTheme, self).save(*args, **kwargs)
 
     def primary_images(self):
         return PrimaryCategoryPageImage.objects.active().filter(panel=self)
@@ -1055,7 +1173,7 @@ class CategoryPage(models.Model):
 ############
 
 class CategoryPageImage(models.Model):
-    panel = models.ForeignKey('CategoryPage')
+    panel = models.ForeignKey('CategoryTheme')
 
     image = models.ImageField(_("Image"), max_length=100, blank=True, upload_to="category_page")
     alt_text = models.CharField(max_length=140,blank=True)

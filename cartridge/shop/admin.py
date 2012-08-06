@@ -27,7 +27,7 @@ shipping_fields = _flds("shipping_detail")
 category_fieldsets = deepcopy(PageAdmin.fieldsets)
 category_fieldsets[0][1]["fields"][3:3] = ["content"]  # , "products"]
 category_fieldsets += ((_("Product filters"), {
-    "fields": ("options", "sale", ("price_min", "price_max"), "combined"),
+    "fields": ("options", "sale", ("price_min", "price_max"), "combined", "hide_sizes"),
     "classes": ("collapse-closed",)},),)
 
 
@@ -40,7 +40,7 @@ class CategoryAdmin(PageAdmin):
 class ProductVariationAdmin(admin.TabularInline):
     verbose_name_plural = _("Current variations")
     model = ProductVariation
-    fields = ("default", "num_in_stock_pool", "num_in_stock", "unit_price", "sale_price", 
+    fields = ("default", "num_in_stock_pool", "num_in_stock", "unit_price", "sale_price",
         "sale_from", "sale_to", "image")
     if not settings.DEBUG:
         readonly_fields = ("num_in_stock", "num_in_stock_pool")
@@ -57,7 +57,7 @@ class ProductImageAdmin(TabularDynamicInlineAdmin):
 
 product_fieldsets = deepcopy(DisplayableAdmin.fieldsets)
 product_fieldsets[0][1]["fields"][1] = ("status")
-product_fieldsets[0][1]["fields"].extend([("ranking", "available", "featured", ), "categories", 
+product_fieldsets[0][1]["fields"].extend([("ranking", "available", "featured", ), "categories",
                                           "content", ("master_item_code", )])
 product_fieldsets = list(product_fieldsets)
 product_fieldsets.append((_("Other products"), {
