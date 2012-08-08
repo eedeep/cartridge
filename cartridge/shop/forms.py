@@ -280,6 +280,8 @@ class ShippingForm(forms.Form):
         discount_code = self._request.session.get("discount_code", "")
         try:
             discount = DiscountCode.objects.get_valid(code=discount_code, cart=self._request.cart)
+            if shipping_option == settings.FREIGHT_WORLD and discount.free_shipping:
+                discount = None
         except DiscountCode.DoesNotExist:
             discount = None
         if shipping_option is not None:
@@ -317,6 +319,10 @@ class DiscountForm(forms.ModelForm):
         if code:
             try:
                 discount = DiscountCode.objects.get_valid(code=code, cart=cart)
+                #don't allow free shipping discounts when rest-of-world shipping option selected
+                if self._request.session.get("shipping_type", None) == settings.FREIGHT_WORLD and discount.free_shipping:
+                    error = _("Free shipping not valid with that shipping option.")
+                    raise forms.ValidationError(error)
                 self._discount = discount
             except DiscountCode.DoesNotExist:
                 set_discount(self._request, None) #remove discount
