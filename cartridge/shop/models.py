@@ -853,6 +853,15 @@ class CartItem(SelectedProduct):
             t -= promotion_discount
         return t
 
+    @property
+    def title(self):
+        """ Try and extract a cleaner title from the description """
+        try:
+            title = self.description.split("::")[0].strip()
+        except:
+            title = self.description
+        return title
+
 
     def get_absolute_url(self):
         return self.url
