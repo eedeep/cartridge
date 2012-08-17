@@ -3,28 +3,23 @@ import datetime
 from south.db import db
 from south.v2 import SchemaMigration
 from django.db import models
-
+from django.conf import settings
 
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
-        db.add_column('shop_sale', '_discount_exact_aud',
-                      self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True),
-                      keep_default=False)
-
-        db.add_column('shop_sale', '_discount_exact_nzd',
-                      self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True),
-                      keep_default=False)
-        db.add_column('shop_sale', '_discount_deduct_aud',
-                      self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True),
-                      keep_default=False)
-
-        db.add_column('shop_sale', '_discount_deduct_nzd',
-                      self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True),
-                      keep_default=False)
+        for currency in settings.STORE_CONFIGS:
+            db.add_column('shop_sale', '_discount_exact_{}'.format(currency.lower()),
+                          self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True),
+                          keep_default=False)
+            db.add_column('shop_sale', '_discount_deduct_{}'.format(currency.lower()),
+                          self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True),
+                          keep_default=False)
 
     def backwards(self, orm):
-        pass
+        for currency in settings.STORE_CONFIGS:
+            db.delete_column('shop_sale', '_discount_exact_{}'.format(currency.lower()))
+            db.delete_column('shop_sale', '_discount_deduct_{}'.format(currency.lower()))
 
     models = {
         'contenttypes.contenttype': {
