@@ -46,7 +46,7 @@ payment_handler = handler(settings.SHOP_HANDLER_PAYMENT)
 order_handler = handler(settings.SHOP_HANDLER_ORDER)
 
 
-def product(request, slug, template="shop/product.html"):
+def product(request, slug, template="shop/product.html", extends_template="base.html"):
     """
     Display a product - convert the product variations to JSON as well as
     handling adding the product to either the cart or the wishlist.
@@ -90,6 +90,7 @@ def product(request, slug, template="shop/product.html"):
                                         for v in variations])
     context = {
         "product": product,
+        "extends_template": extends_template,
         "images": product.reduced_image_set(variations),
         "variations": variations,
         "variations_json": variations_json,
@@ -199,7 +200,7 @@ def _shipping_form_for_cart(request, currency):
             shipping_option = settings.FREIGHT_DEFAULTS[currency]
     return ShippingForm(request, currency, {"id": shipping_option})
 
-def cart(request, template="shop/cart.html"):
+def cart(request, template="shop/cart.html", extends_template="base.html"):
     """
     Display cart and handle removing items from the cart.
     """
@@ -243,6 +244,9 @@ def cart(request, template="shop/cart.html"):
         DiscountCode.objects.active().count() > 0):
         context["discount_form"] = discount_form
     context["shipping_form"] = shipping_form
+
+    context["extends_template"] = extends_template
+
     if request.is_ajax():
         return HttpResponse(_discount_data(request, discount_form), "application/javascript")
     else:
@@ -270,7 +274,7 @@ def finalise_order(transaction_id, request, order, remember):
 
 
 @never_cache
-def checkout_steps(request):
+def checkout_steps(request, extends_template="base.html"):
     """
     Display the order form and handle processing of each step.
     """
@@ -373,6 +377,7 @@ def checkout_steps(request):
     CHECKOUT_STEP_FIRST = step == checkout.CHECKOUT_STEP_FIRST
     form.label_suffix = ''
     context = {"form": form, "CHECKOUT_STEP_FIRST": CHECKOUT_STEP_FIRST,
+               "extends_template": extends_template,
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step,
                'no_stock':no_stock}
@@ -394,7 +399,7 @@ def abort(request, transaction_slug, template="shop/aborted.html"):
     return render(request, template)
 
 
-def complete(request, template="shop/complete.html"):
+def complete(request, template="shop/complete.html", extends_template="base.html"):
     """
     Redirected to once an order is complete - pass the order object
     for tracking items via Google Anayltics, and displaying in
@@ -415,11 +420,12 @@ def complete(request, template="shop/complete.html"):
     for i, item in enumerate(items):
         setattr(items[i], "name", names[item.sku])
     context = {"order": order, "items": items,
+               "extends_template": extends_template,
                "steps": checkout.CHECKOUT_STEPS}
     return render(request, template, context)
 
 
-def invoice(request, order_id, template="shop/order_invoice.html"):
+def invoice(request, order_id, template="shop/order_invoice.html", extends_template="base.html"):
     """
     Display a plain text invoice for the given order. The order must
     belong to the user which is checked via session or ID if
@@ -431,9 +437,15 @@ def invoice(request, order_id, template="shop/order_invoice.html"):
     elif not request.user.is_staff:
         lookup["user_id"] = request.user.id
     order = get_object_or_404(Order, **lookup)
-    context = {"order": order}
+
+    context = {
+        "order": order,
+        "extends_template": extends_template,
+        }
+
     context.update(order.details_as_dict())
     context = RequestContext(request, context)
+
     if request.GET.get("format") == "pdf":
         response = HttpResponse(mimetype="application/pdf")
         name = slugify("%s-invoice-%s" % (settings.SITE_TITLE, order.id))
