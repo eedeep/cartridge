@@ -30,9 +30,17 @@ class CartManager(Manager):
             except self.model.DoesNotExist: #completely new cart
                 pass
             else: #found an old expired cart
-                 logging.warning("can not use request cart {}, it expired on {}. Expiry cut off is currently {}".format(
-                     cart_id, old_cart.last_updated.strftime("%c"), expiry_time.strftime("%c"),
-                     ))
+                try:
+                    logging.warning(
+                        "can not use request cart {}, it expired on {}. Expiry cut off is currently {}"\
+                        .format(
+                            cart_id, 
+                            old_cart.last_updated.strftime("%c"), 
+                            expiry_time.strftime("%c"),
+                        )
+                    )
+                except ValueError:
+                    pass
             self.filter(last_updated__lt=expiry_time).delete()
             cart = self.create()
             request.session["cart"] = cart.id
