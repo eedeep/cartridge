@@ -21,7 +21,8 @@ from mezzanine.conf import settings
 from mezzanine.core.templatetags.mezzanine_tags import thumbnail
 
 from cartridge.shop import checkout
-from cartridge.shop.models import Product, ProductOption, ProductVariation
+from cartridge.shop.models import Product, ProductOption, ProductVariation, \
+                                    ProductSyncRequest
 from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
 from cartridge.shop.utils import make_choices, set_locale, set_shipping, set_discount
 
@@ -48,6 +49,14 @@ class JoshRadioInput(widgets.RadioInput):
             label_for = ''
         choice_label = conditional_escape(force_unicode(self.choice_label))
         return mark_safe(u'%s<label%s>%s</label>' % (self.tag(), label_for, choice_label))
+
+class ScheduleForSyncWidget(widgets.CheckboxInput):
+    def render(self, name, value, attrs=None):
+        if value:
+            return  mark_safe('An imminent image sync request is currently pending '
+                'for this product. It should be complete in a few minutes.')
+        else:
+            return super(ScheduleForSyncWidget, self).render(name, value, attrs)
 
 class JoshRadioFieldRenderer(widgets.RadioFieldRenderer):
     def __iter__(self):
@@ -551,6 +560,12 @@ class ProductAdminForm(forms.ModelForm):
     """
     Admin form for the Product model.
     """
+    sync = forms.BooleanField(
+        label='Schedule Imminent RMS Image Sync',
+        required=False,
+        widget=ScheduleForSyncWidget()
+    )
+
     __metaclass__ = ProductAdminFormMetaclass
 
     class Meta:
@@ -570,6 +585,11 @@ class ProductAdminForm(forms.ModelForm):
             queryset = Product.objects.exclude(id=instance.id)
             self.fields["related_products"].queryset = queryset
             self.fields["upsell_products"].queryset = queryset
+            try:
+                self.fields["sync"].initial = True if instance.productsyncrequest else False
+                self.fields["sync"].label = ''
+            except ProductSyncRequest.DoesNotExist:
+                self.fields["sync"].initial = False
 
 
 class ProductVariationAdminForm(forms.ModelForm):

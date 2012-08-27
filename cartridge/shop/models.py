@@ -169,6 +169,10 @@ class Product(Displayable, Priced, RichText):
                                         related_name="products")
     date_added = models.DateTimeField(_("Date added"), auto_now_add=True,
                                       null=True)
+    date_last_synced = models.DateTimeField(
+        _("Images Last Synced"), null=True,
+        help_text="When images for this product was last synced from RMS."
+    )
     related_products = models.ManyToManyField("self", blank=True)
     upsell_products = models.ManyToManyField("self", blank=True)
     rating = RatingField(verbose_name=_("Rating"))
@@ -1216,3 +1220,6 @@ class SecondaryCategoryPageImage(CategoryPageImage):
 
 class FooterCategoryPageImage(CategoryPageImage):
     objects = managers.CategoryPageImageManager()
+
+class ProductSyncRequest(models.Model):
+   product = models.OneToOneField(Product, primary_key=True)
