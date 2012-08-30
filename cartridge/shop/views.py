@@ -360,7 +360,7 @@ def checkout_steps(request, extends_template="base.html"):
                         transaction_id,
                         request,
                         order,
-                        form.cleaned_data.get('remeber')
+                        form.cleaned_data.get('remember')
                     )
                     return response
 
