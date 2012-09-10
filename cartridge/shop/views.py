@@ -354,7 +354,7 @@ def checkout_steps(request, extends_template="base.html"):
                         pareq=threed_exc.get_pareq()
                     )
                     threed_txn.save()
-                    return threed_exc.get_redirect_response(request, threed_txn.transaction_slug)
+                    return threed_exc.get_redirect_response(request, threed_txn.transaction_slug, extends_template)
                 else:
                     response = finalise_order(
                         transaction_id,
