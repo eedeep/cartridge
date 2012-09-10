@@ -183,7 +183,7 @@ class Product(Displayable, Priced, RichText):
     product_colours = CharField(_("Available colours"), blank=True, default="", max_length=500)
     product_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
 
-    tags = TaggableManager()
+    tags = TaggableManager(blank=True)
     objects = DisplayableManager()
     search_fields = ("master_item_code",)
 
