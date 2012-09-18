@@ -230,7 +230,7 @@ register_setting(
         "the options available for sorting a list of products.",
     editable=False,
     default=(
-        (_("Highest ranking"), "ranking"),
+        (_("Most popular"), "ranking"),
         (_("Recently added"), "-date_added"),
         (_("Least expensive"), "unit_price"),
         (_("Most expensive"), "-unit_price"),
