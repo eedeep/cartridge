@@ -21,6 +21,7 @@ class CartManager(Manager):
         """
         expiry_minutes = timedelta(minutes=settings.SHOP_CART_EXPIRY_MINUTES)
         expiry_time = datetime.now() - expiry_minutes
+        create_cart = False
         try:
             cart_id = request.session.get("cart", None)
             cart = self.get(last_updated__gte=expiry_time, id=cart_id)
@@ -34,8 +35,8 @@ class CartManager(Manager):
                     logging.warning(
                         "can not use request cart {}, it expired on {}. Expiry cut off is currently {}"\
                         .format(
-                            cart_id, 
-                            old_cart.last_updated.strftime("%c"), 
+                            cart_id,
+                            old_cart.last_updated.strftime("%c"),
                             expiry_time.strftime("%c"),
                         )
                     )
@@ -44,10 +45,16 @@ class CartManager(Manager):
             self.filter(last_updated__lt=expiry_time).delete()
             cart = self.create()
             request.session["cart"] = cart.id
+            create_cart = True
         else:
-            cart.timestamp_save_only = True #provided so promotions only apply when cart changes
-            cart.save()  # Update timestamp.
-            cart.timestamp_save_only = False
+            if (create_cart or
+                not (request.path == '/' or
+                     request.path.startswith('/shop/women/') or
+                     request.path.startswith('/shop/rubi/') or
+                     request.path.startswith('/shop/typo/'))):
+                cart.timestamp_save_only = True #provided so promotions only apply when cart changes
+                cart.save()  # Update timestamp.
+                cart.timestamp_save_only = False
         return cart
 
 
