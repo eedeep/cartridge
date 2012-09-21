@@ -169,9 +169,15 @@ class Product(Displayable, Priced, RichText):
                                         related_name="products")
     date_added = models.DateTimeField(_("Date added"), auto_now_add=True,
                                       null=True)
-    date_last_synced = models.DateTimeField(
+    sync_images = models.BooleanField(_("Schedule Image Sync"), default=False)
+    date_images_last_synced = models.DateTimeField(
         _("Images Last Synced"), null=True,
         help_text="When images for this product was last synced from RMS."
+    )
+    sync_stock = models.BooleanField(_("Schedule Stock Sync"), default=False)
+    date_stock_last_synced = models.DateTimeField(
+        _("Stock Last Synced"), null=True,
+        help_text="When stock for this product was last synced from RMS."
     )
     related_products = models.ManyToManyField("self", blank=True)
     upsell_products = models.ManyToManyField("self", blank=True)
@@ -1223,3 +1229,5 @@ class FooterCategoryPageImage(CategoryPageImage):
 
 class ProductSyncRequest(models.Model):
    product = models.OneToOneField(Product, primary_key=True)
+   images = models.BooleanField(_("Sync Images"), default=False)
+   stock = models.BooleanField(_("Sync Stock"), default=False)
