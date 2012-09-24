@@ -1,5 +1,6 @@
 from django import forms
 from django.utils.translation import ugettext as _
+from django.contrib.admin.widgets import FilteredSelectMultiple
 
 from cartridge.taggit.utils import parse_tags, edit_string_for_tags
 

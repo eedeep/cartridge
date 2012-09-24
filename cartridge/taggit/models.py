@@ -15,7 +15,7 @@ except ImportError:
 
 
 class TagBase(models.Model):
-    name = models.CharField(verbose_name=_('Name'), max_length=100)
+    name = models.CharField(verbose_name=_('Tag Name'), max_length=100)
     slug = models.SlugField(verbose_name=_('Slug'), unique=True, max_length=100)
     ranking = models.IntegerField(default=1000)
 
