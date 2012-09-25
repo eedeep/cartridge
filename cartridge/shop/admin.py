@@ -16,6 +16,8 @@ from cartridge.shop.models import Category, Product, ProductImage
 from cartridge.shop.models import ProductVariation, ProductOption, Order
 from cartridge.shop.models import OrderItem, Sale, DiscountCode
 
+from cartridge_extras.forms import CategoryAdminForm
+
 from django.conf import settings
 
 # Lists of field names.
@@ -27,14 +29,23 @@ shipping_fields = _flds("shipping_detail")
 category_fieldsets = deepcopy(PageAdmin.fieldsets)
 category_fieldsets[0][1]["fields"][3:3] = ["content"]  # , "products"]
 category_fieldsets += ((_("Product filters"), {
-    "fields": ("options", "sale", ("price_min", "price_max"), "combined", "hide_sizes"),
+    "fields": ("options", "products", "sale", ("price_min", "price_max"), "combined", "hide_sizes"),
     "classes": ("collapse-closed",)},),)
 
 
 class CategoryAdmin(PageAdmin):
     fieldsets = category_fieldsets
     formfield_overrides = {ImageField: {"widget": ImageWidget}}
-    filter_horizontal = ("options",)  # "products", )
+    filter_horizontal = ("options",)
+    form = CategoryAdminForm
+
+    def save_model(self, request, obj, form, change):
+        """
+        Store the product object for creating variations in save_formset.
+        """
+        obj.products.clear()
+        obj.products.add(*form.cleaned_data['products'])
+        super(CategoryAdmin, self).save_model(request, obj, form, change)
 
 
 class ProductVariationAdmin(admin.TabularInline):
@@ -82,6 +93,12 @@ class ProductAdmin(DisplayableAdmin):
     inlines = (ProductImageAdmin, ProductVariationAdmin)
     form = ProductAdminForm
     fieldsets = product_fieldsets
+
+    def __init__(self, model, admin_site):
+        super(ProductAdmin, self).__init__(model, admin_site)
+        # We do the following so we have access in the form
+        # to the admin_site, which is required by RelatedFieldWidgetWrapper
+        self.form.admin_site = admin_site
 
     def save_model(self, request, obj, form, change):
         """

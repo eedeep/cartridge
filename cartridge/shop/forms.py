@@ -16,6 +16,8 @@ from django.forms.models import inlineformset_factory
 from django.utils.datastructures import SortedDict
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
+from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
+from django.db.models.fields.related import ManyToManyRel
 
 from mezzanine.conf import settings
 from mezzanine.core.templatetags.mezzanine_tags import thumbnail
@@ -25,6 +27,10 @@ from cartridge.shop.models import Product, ProductOption, ProductVariation, \
                                     ProductSyncRequest
 from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
 from cartridge.shop.utils import make_choices, set_locale, set_shipping, set_discount
+
+from cartridge_deps.widgets import FasterFilteredSelectMultiple
+
+from cartridge.taggit.models import Tag
 
 from countries.models import Country
 
@@ -558,10 +564,11 @@ class ProductAdminForm(forms.ModelForm):
     """
     Admin form for the Product model.
     """
-    sync = forms.BooleanField(
-        label='Schedule Imminent RMS Image Sync',
+    tags = forms.ModelMultipleChoiceField(
+        queryset=Tag.objects.all(),
+        label='Tags',
         required=False,
-        widget=ScheduleForSyncWidget()
+        widget=FasterFilteredSelectMultiple('Tags', False),
     )
 
     __metaclass__ = ProductAdminFormMetaclass
@@ -576,18 +583,22 @@ class ProductAdminForm(forms.ModelForm):
         upsell products.
         """
         super(ProductAdminForm, self).__init__(*args, **kwargs)
+
+        # The following two lines give the tags widget the '+' icon
+        rel = ManyToManyRel(Tag, 'id')
+        self.fields['tags'].widget = RelatedFieldWidgetWrapper(
+            self.fields['tags'].widget, rel, self.admin_site
+        )
+
         for field, options in ProductOption.objects.as_fields().items():
             self.fields[field].choices = make_choices(options)
+
         instance = kwargs.get("instance")
         if instance:
             queryset = Product.objects.exclude(id=instance.id)
             self.fields["related_products"].queryset = queryset
             self.fields["upsell_products"].queryset = queryset
-            try:
-                self.fields["sync"].initial = True if instance.productsyncrequest else False
-                self.fields["sync"].label = ''
-            except ProductSyncRequest.DoesNotExist:
-                self.fields["sync"].initial = False
+            self.initial['tags'] = instance.tags.all().values_list('id', flat=True)
 
 
 class ProductVariationAdminForm(forms.ModelForm):
@@ -626,3 +637,21 @@ class DiscountAdminForm(forms.ModelForm):
             error = _("Please enter a value for only one type of reduction.")
             self._errors[fields[0]] = self.error_class([error])
         return self.cleaned_data
+
+
+class TagAdminForm(forms.ModelForm):
+    products = forms.ModelMultipleChoiceField(
+        queryset=Product.objects.all(),
+        label='Products',
+        required=False,
+        widget=FasterFilteredSelectMultiple('Products', False)
+    )
+
+    class Meta:
+        model = Tag
+
+    def __init__(self, *args, **kwargs):
+        super(TagAdminForm, self).__init__(*args, **kwargs)
+        instance = kwargs.get("instance")
+        if instance:
+            self.initial['products'] = instance.taggit_taggeditem_items.all().values_list('object_id', flat=True)
