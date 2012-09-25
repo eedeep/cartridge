@@ -635,6 +635,8 @@ class Order(models.Model):
         self.save()  # We need an ID before we can add related items.
         for item in request.cart:
             product_fields = [f.name for f in SelectedProduct._meta.fields]
+            #CO custom code to copy promotion details from cartitem to orderitems if available
+            product_fields.extend([f.name for f in item._meta.fields if "promotion" in f.name])
             item = dict([(f, getattr(item, f)) for f in product_fields])
             self.items.create(**item)
 
@@ -752,6 +754,7 @@ class Cart(models.Model):
             variation.product.actions.added_to_cart()
         item.quantity += quantity
         item.save()
+        if hasattr(self, "_cached_items"): del self._cached_items
 
     def has_items(self):
         """
