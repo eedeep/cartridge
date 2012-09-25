@@ -1,4 +1,5 @@
 import itertools
+import hashlib
 
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
@@ -11,6 +12,7 @@ from django.utils import simplejson
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
+from django.core.cache import cache
 from django.db.models import Sum
 
 from mezzanine.conf import settings
@@ -88,16 +90,32 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
+    currency = session_currency(request)
     context = {
         "product": product,
         "extends_template": extends_template,
         "images": product.reduced_image_set(variations),
         "variations": variations,
         "variations_json": variations_json,
-        "has_available_variations": any(v.has_price(session_currency(request)) for v in variations),
+        "has_available_variations": any(v.has_price(currency) for v in variations),
         "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
         }
+
+    cache_key = generate_cache_key(request)
+    cached_data = cache.get(cache_key, None)
+    if cached_data and 'invalidate-cache' not in request.GET:
+        context.update(cached_data)
+    elif len(variations) > 0:
+        variation = variations[0]
+        cached_context = dict(
+            keywords=','.join([x for x in product.keywords.all()]),
+            size_chart=product.size_chart,
+            has_price=variation.has_price(currency),
+            on_sale=variation.on_sale(currency),
+            is_marked_down=variation.is_marked_down(currency))
+        cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
+        context.update(cached_context)
 
     #Get the first promotion for this object
     if Promotion:
@@ -107,6 +125,13 @@ def product(request, slug, template="shop/product.html", extends_template="base.
             context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
 
+def generate_cache_key(request):
+    ctx = hashlib.md5()
+    ctx.update(
+        request.get_full_path().replace('?invalidate-cache', '')
+    )
+    ctx.update(session_currency(request))
+    return ctx.hexdigest()
 
 def wishlist(request, template="shop/wishlist.html"):
     """
@@ -241,7 +266,7 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     context = {"cart_formset": cart_formset}
     settings.use_editable()
     if (settings.SHOP_DISCOUNT_FIELD_IN_CART and
-        DiscountCode.objects.active().count() > 0):
+        len(DiscountCode.objects.active()[:1]) > 0):
         context["discount_form"] = discount_form
     context["shipping_form"] = shipping_form
 

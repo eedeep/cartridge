@@ -111,7 +111,7 @@ class AddProductForm(forms.Form):
         option_names, option_labels = zip(*[(f.name, f.verbose_name)
             for f in ProductVariation.option_fields()])
         option_values = zip(*self._product.variations.filter(
-            unit_price__isnull=False).values_list(*option_names))
+                unit_price__isnull=False).values_list(*option_names))
 
         # Only include variations that have stock and images
         option1_list = dict()
@@ -124,27 +124,34 @@ class AddProductForm(forms.Form):
                 continue
             option1_list[variation.option1] = variation.total_in_stock > 0
 
-        if option_values:
-           for i, name in enumerate(option_names):
-               if name == 'option1':
-                   # Don't display style if it's out of stock
-                   values = filter(lambda x: x in option1_list and option1_list[x],
-                                   set(option_values[i]))
-                   if len(values) == 0 and len(option_values[i]) > 0:
-                       values = [option_values[i][0]]
-               else:
-                   values = filter(None, set(option_values[i]))
-               if values:
-                   choices = make_choices(
-                       ProductOption.objects.filter(name__in=values,
-                                                    type=i+1).order_by(
-                           "ranking").values_list("name", flat=True))
-                   kwargs = {"label":(option_labels[i]),
-                             "choices":[(x[0], ProductOption.colourName(x[1])) for x in choices]}
-                   if name == "option%s"%settings.OPTION_SIZE: #use radio for size
-                        kwargs["widget"] = JoshRadioSelect
-                   field = forms.ChoiceField(**kwargs)
-                   self.fields[name] = field
+        if not option_values:
+            return
+        OPTION_SIZE = "option%s" % settings.OPTION_SIZE
+        for i, name in enumerate(option_names):
+            if name != OPTION_SIZE:
+                # Don't display style if it's out of stock
+                values = filter(lambda x: x in option1_list and option1_list[x],
+                                set(option_values[i]))
+                if len(values) == 0 and len(option_values[i]) > 0:
+                    values = [option_values[i][0]]
+            else:
+                values = filter(None, set(option_values[i]))
+            if values:
+                if name == OPTION_SIZE:
+                    choices = make_choices(
+                        ProductOption.objects.filter(name__in=values,
+                                                     type=i+1).order_by(
+                            "ranking").values_list("name", flat=True))
+                    kwargs = {"label":option_labels[i],
+                              "choices":[(x[0], x[1]) for x in choices]}
+                    kwargs["widget"] = JoshRadioSelect
+                else:
+                    kwargs = {"label":(option_labels[i]),
+                              "choices":[
+                            (x, ProductOption.colourName(x))
+                            for x in values]}
+                field = forms.ChoiceField(**kwargs)
+                self.fields[name] = field
 
     def clean(self):
         """
