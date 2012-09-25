@@ -231,7 +231,7 @@ register_setting(
     editable=False,
     default=(
         (_("Highest ranking"), "ranking"),
-        (_("Recently added"), "-date_added"),
+        (_("Recently added"), "-date_images_last_synced"),
         (_("Least expensive"), "unit_price"),
         (_("Most expensive"), "-unit_price"),
     ),
