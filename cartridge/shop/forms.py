@@ -402,15 +402,6 @@ class OrderForm(FormsetForm, DiscountForm):
         # Copy billing fields to shipping fields if "same" checked.
         first = step == checkout.CHECKOUT_STEP_FIRST
         last = step == checkout.CHECKOUT_STEP_LAST
-        if (first and data is not None and "same_billing_shipping" in data):
-            data = copy(data)
-            # Prevent second copy occuring for forcing step below when
-            # moving backwards in steps.
-            data["step"] = step
-            for field in data:
-                billing = field.replace("shipping_detail", "billing_detail")
-                if "shipping_detail" in field and billing in data:
-                    data[field] = data[billing]
 
         if initial is not None:
             initial["step"] = step
