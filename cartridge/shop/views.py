@@ -241,7 +241,7 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     context = {"cart_formset": cart_formset}
     settings.use_editable()
     if (settings.SHOP_DISCOUNT_FIELD_IN_CART and
-        DiscountCode.objects.active().count() > 0):
+        len(DiscountCode.objects.active()[:1]) > 0):
         context["discount_form"] = discount_form
     context["shipping_form"] = shipping_form
 
