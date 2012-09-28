@@ -320,14 +320,14 @@ def checkout_steps(request, extends_template="base.html"):
     data = request.POST
     checkout_errors = []
 
-    cart = Cart.objects.from_request(request)
+    cart = request.cart
     no_stock = cart.has_no_stock()
     if request.POST.get("back") is not None:
         # Back button in the form was pressed - load the order form
         # for the previous step and maintain the field values entered.
         step -= 1
         form = form_class(request, step, initial=initial)
-    elif request.method == "POST":
+    elif request.method == "POST" and cart.has_items():
         sensitive_card_fields = ("card_number", "card_expiry_month",
                                  "card_expiry_year", "card_ccv")
         form = form_class(request, step, initial=initial, data=data)
