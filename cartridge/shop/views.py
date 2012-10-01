@@ -1,5 +1,9 @@
-import itertools
 import hashlib
+import itertools
+import logging
+from urllib2 import urlopen, URLError
+
+logger = logging.getLogger("cottonon")
 
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
@@ -424,6 +428,21 @@ def abort(request, transaction_slug, template="shop/aborted.html"):
     return render(request, template)
 
 
+def exchange_rates():
+    cache_key = 'exchange-rates'
+    data = cache.get(cache_key, None)
+    if data:
+        return data
+    try:
+        response = urlopen('http://openexchangerates.org/api/latest.json?app_id=377193e83fbb41d592e4521a8ec7d35e', timeout=5)
+        if response.getcode() == 200:
+            json_rates = response.read()
+    except URLError:
+        logger.error('The exchange rates API is unreachable')
+        json_rates = '{"rates":{"AUD":0.966098, "USD": 1, "MYR": 3.074717, "HKD": 7.75365, "SGD": 1.22935}}'
+    cache.set(cache_key, json_rates, 3600 * 24)
+    return json_rates
+
 def complete(request, template="shop/complete.html", extends_template="base.html"):
     """
     Redirected to once an order is complete - pass the order object
@@ -446,6 +465,7 @@ def complete(request, template="shop/complete.html", extends_template="base.html
         setattr(items[i], "name", names[item.sku])
     context = {"order": order, "items": items,
                "extends_template": extends_template,
+               'exchange_rates': exchange_rates(),
                "steps": checkout.CHECKOUT_STEPS}
     return render(request, template, context)
 
