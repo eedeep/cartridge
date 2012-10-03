@@ -50,6 +50,7 @@ handler = lambda s: import_dotted_path(s) if s else lambda *args: None
 billship_handler = handler(settings.SHOP_HANDLER_BILLING_SHIPPING)
 payment_handler = handler(settings.SHOP_HANDLER_PAYMENT)
 order_handler = handler(settings.SHOP_HANDLER_ORDER)
+tax_handler = handler(settings.SHOP_HANDLER_TAX)
 
 
 def product(request, slug, template="shop/product.html", extends_template="base.html"):
@@ -353,6 +354,7 @@ def checkout_steps(request, extends_template="base.html"):
             if step == checkout.CHECKOUT_STEP_FIRST:
                 try:
                     billship_handler(request, form)
+                    tax_handler(request, form)
                 except checkout.CheckoutError, e:
                     checkout_errors.append(e)
                 form.set_discount()
