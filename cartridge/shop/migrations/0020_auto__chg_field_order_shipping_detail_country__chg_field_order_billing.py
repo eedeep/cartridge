@@ -31,6 +31,17 @@ class Migration(SchemaMigration):
                       self.gf('django.db.models.fields.DateTimeField')(null=True),
                       keep_default=False)
 
+        # Adding field 'ProductSyncRequest.images'
+        db.add_column('shop_productsyncrequest', 'images',
+                      self.gf('django.db.models.fields.BooleanField')(default=False),
+                      keep_default=False)
+
+        # Adding field 'ProductSyncRequest.stock'
+        db.add_column('shop_productsyncrequest', 'stock',
+                      self.gf('django.db.models.fields.BooleanField')(default=False),
+                      keep_default=False)
+
+
     def backwards(self, orm):
         # Adding field 'Product.date_last_synced'
         db.add_column('shop_product', 'date_last_synced',
@@ -39,15 +50,20 @@ class Migration(SchemaMigration):
 
         # Deleting field 'Product.sync_images'
         db.delete_column('shop_product', 'sync_images')
+        db.delete_column('shop_product', 'sync_stock')
 
         # Deleting field 'Product.date_images_last_synced'
         db.delete_column('shop_product', 'date_images_last_synced')
+        db.delete_column('shop_product', 'date_stock_last_synced')
 
         # Deleting field 'Product.sync_stock'
         db.delete_column('shop_product', 'sync_stock')
 
-        # Deleting field 'Product.date_stock_last_synced'
-        db.delete_column('shop_product', 'date_stock_last_synced')
+        # Deleting field 'ProductSyncRequest.images'
+        db.delete_column('shop_productsyncrequest', 'images')
+
+        # Deleting field 'ProductSyncRequest.stock'
+        db.delete_column('shop_productsyncrequest', 'stock')
 
     models = {
         'contenttypes.contenttype': {
