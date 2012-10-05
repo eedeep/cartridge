@@ -791,11 +791,10 @@ class Cart(models.Model):
         """
         Returns the upsell products for each of the items in the cart.
         """
-        # HACK: Get the cart back up and running. Comment this out because
-        # sku no longer exists!
-        return []
-        cart = Product.objects.filter(variations__sku__in=self.skus())
+        cart = Product.objects.filter(variations__sku__in=self.skus()) #products linked to items in cart
         published_products = Product.objects.published()
+
+        #all publish products that are linked via upsell_products on cart item products
         for_cart = published_products.filter(upsell_products__in=cart)
         with_cart_excluded = for_cart.exclude(variations__sku__in=self.skus())
         return list(with_cart_excluded.distinct())
