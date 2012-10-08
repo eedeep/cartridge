@@ -19,6 +19,8 @@ class CartManager(Manager):
         found as well as removing old carts prior to creating a new
         cart.
         """
+        if hasattr(request, 'cart'):
+            return request.cart
         expiry_minutes = timedelta(minutes=settings.SHOP_CART_EXPIRY_MINUTES)
         expiry_time = datetime.now() - expiry_minutes
         create_cart = False
