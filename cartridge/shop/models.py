@@ -198,6 +198,11 @@ class Product(Displayable, Priced, RichText):
         verbose_name_plural = _("Products")
         ordering = ("ranking", "title")
 
+    def categories_str(self):
+        return ', '.join(self.categories.all().values_list('title', flat=True))
+    def tags_str(self):
+        return ', '.join(self.tags.all().values_list('name', flat=True))
+
     def __unicode__(self):
         return '%s :: %s' % (self.title, self.master_item_code)
 
