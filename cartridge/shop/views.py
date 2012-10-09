@@ -113,7 +113,7 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     elif len(variations) > 0:
         variation = variations[0]
         cached_context = dict(
-            keywords=','.join([x for x in product.keywords.all()]),
+            keywords=','.join([str(x) for x in product.keywords.all()]),
             size_chart=product.size_chart,
             has_price=variation.has_price(currency),
             on_sale=variation.on_sale(currency),
