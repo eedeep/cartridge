@@ -1,4 +1,7 @@
+import os
 import random
+import md5
+import re
 from datetime import datetime
 from decimal import Decimal, ROUND_UP
 from operator import iand, ior
@@ -8,6 +11,7 @@ from django.db.models import CharField, Q
 from django.db.models.base import ModelBase
 from django.utils.translation import ugettext_lazy as _
 from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
+from django.core.files.base import ContentFile
 from _mysql_exceptions import OperationalError
 from django.utils import simplejson
 
@@ -198,6 +202,11 @@ class Product(Displayable, Priced, RichText):
         verbose_name_plural = _("Products")
         ordering = ("ranking", "title")
 
+    def categories_str(self):
+        return ', '.join(self.categories.all().values_list('title', flat=True))
+    def tags_str(self):
+        return ', '.join(self.tags.all().values_list('name', flat=True))
+
     def __unicode__(self):
         return '%s :: %s' % (self.title, self.master_item_code)
 
@@ -321,6 +330,10 @@ class Product(Displayable, Priced, RichText):
     admin_thumb.short_description = ""
 
 
+def product_image_path(instance, filename):
+    product_code = instance.product.master_item_code.split('-')[0]
+    return "static/media/product/images/{0}/{1}".format(product_code, filename)
+
 class ProductImage(Orderable):
     """
     An image for a product - a relationship is also defined with the
@@ -329,10 +342,12 @@ class ProductImage(Orderable):
     ``ProductImage`` models ensures there is a single set of images
     for the product.
     """
-
-    file = models.ImageField(_("Image"), upload_to="product")
+    file = models.ImageField(_("Image"), upload_to=product_image_path)
     description = CharField(_("Description"), blank=True, max_length=100)
-    product = models.ForeignKey("Product", related_name="images")
+    product = models.ForeignKey(
+        "Product",
+        related_name="images"
+    )
 
     class Meta:
         verbose_name = _("Image")
@@ -346,6 +361,70 @@ class ProductImage(Orderable):
         if not value:
             value = ""
         return value
+
+    @staticmethod
+    def extract_base_filename(filename):
+        result = re.match("^v_(.*)_(.*)$", os.path.basename(filename))
+        if result:
+            return result.group(2)
+        else:
+            return os.path.basename(filename)
+
+    @staticmethod
+    def autoversioned_image_filename(filename, image_content):
+        """
+        Return a file name which includes an md5
+        prefix based on the file content, for the purposes
+        of autoversioning. ie, every time the image content
+        changes, we get a unique file name. Useful for
+        avoiding problems with far future expires headers
+        and browser caching.
+        """
+        format_mask = "v_{0}_{1}"
+        base_filename = ProductImage.extract_base_filename(filename)
+        image_md5 = md5.new()
+        image_md5.update(image_content)
+        return format_mask.format(image_md5.hexdigest(), base_filename)
+
+    def image_content(self):
+        image_content = self.file.file.file.getvalue()
+        self.file.file.seek(0)
+        return image_content
+
+    def get_absolute_path(self):
+        """
+        In order to make use of the boto storage backend to upload
+        files to the CDN we need to set the path to the aboslute
+        path, which includes the static/media prefix. This method
+        deals with the fact that during the transition to
+        using the boto storage backend to manage file uploads
+        we may have some product images with paths that are like:
+            static/media/product/images/202718/v_040700cdca4a031ed80e975056f23f9c_202718-70-2.JPG
+        and some that are still like:
+            product/images/202718/202718-70-2.JPG
+        So in templates, use this method and don't prefix with {{ MEDIA_URL }}
+        """
+        if self.file.name.startswith('static/media/'):
+            file_path = self.file.name.lstrip('static/media/')
+        else:
+            file_path = self.file.name
+        return os.path.join(settings.MEDIA_URL, file_path)
+
+    def save(self, *args, **kwargs):
+        try:
+            autoversioned_name = ProductImage.autoversioned_image_filename(
+                self.file.file.name,
+                self.image_content()
+            )
+            self.file.save(
+                autoversioned_name,
+                ContentFile(self.image_content()),
+                save=False
+            )
+        except IOError:
+            pass
+
+        super(ProductImage, self).save(*args, **kwargs)
 
 
 class ProductOption(models.Model):
@@ -414,8 +493,13 @@ class ProductVariation(Priced, ProductVariationAbstract):
     num_in_stock = models.IntegerField(_("Number in stock"), blank=True,
                                        null=True)
     default = models.BooleanField(_("Default"))
-    image = models.ForeignKey("ProductImage", verbose_name=_("Image"),
-                              null=True, blank=True)
+    image = models.ForeignKey(
+        "ProductImage",
+        verbose_name=_("Image"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL
+    )
 
     objects = managers.ProductVariationManager()
 
