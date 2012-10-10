@@ -227,7 +227,7 @@ class DiscountCodeManager(Manager):
         valid_to = Q(valid_to__isnull=True) | Q(valid_to__gte=now)
         return self.filter(valid_from, valid_to, active=True)
 
-    def get_valid(self, code, cart):
+    def get_valid(self, code, cart, currency):
         """
         Items flagged as active and within date range as well checking
         that the given cart contains items that the code is valid for.
@@ -236,8 +236,8 @@ class DiscountCodeManager(Manager):
         DP - Also supports validation of number of times used
         """
         total_price_valid = (
-            Q(min_purchase__isnull=True) |
-            Q(min_purchase__lte=cart.total_price())
+            Q(**{'_min_purchase_{}__isnull'.format(currency.lower()): True}) |
+            Q(**{'_min_purchase_{}__lte'.format(currency.lower()): cart.total_price()})
         )
         usages_remaining_valid = (
             Q(allowed_no_of_uses=0) |

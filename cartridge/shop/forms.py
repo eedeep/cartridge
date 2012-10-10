@@ -35,6 +35,7 @@ from cartridge.taggit.models import Tag
 from countries.models import Country
 
 from multicurrency.templatetags.multicurrency_tags import local_currency
+from multicurrency.utils import session_currency
 
 
 ADD_PRODUCT_ERRORS = {
@@ -301,7 +302,11 @@ class ShippingForm(forms.Form):
         shipping_option = self.cleaned_data["id"]
         discount_code = self._request.session.get("discount_code", "")
         try:
-            discount = DiscountCode.objects.get_valid(code=discount_code, cart=self._request.cart)
+            discount = DiscountCode.objects.get_valid(
+                code=discount_code,
+                cart=self._request.cart,
+                currency=self._currency,
+            )
             if shipping_option == settings.FREIGHT_WORLD and discount.free_shipping:
                 discount = None
         except DiscountCode.DoesNotExist:
@@ -310,7 +315,10 @@ class ShippingForm(forms.Form):
             shipping_cost = Decimal(str(self._shipping_options.get(shipping_option)[0])) #from settings.FREIGHT_OPTIONS
             set_shipping(self._request, shipping_option, shipping_cost)
             if discount:
-                total = self._request.cart.calculate_discount(discount)
+                total = self._request.cart.calculate_discount(
+                    discount,
+                    self._currency
+                )
                 if discount.free_shipping:
                     set_shipping(self._request, _("Free shipping"), 0)
                 self._request.session["free_shipping"] = discount.free_shipping
@@ -338,9 +346,14 @@ class DiscountForm(forms.ModelForm):
         """
         code = self.cleaned_data.get("discount_code", "")
         cart = self._request.cart
+        currency = session_currency(self._request)
         if code:
             try:
-                discount = DiscountCode.objects.get_valid(code=code, cart=cart)
+                discount = DiscountCode.objects.get_valid(
+                    code=code,
+                    cart=cart,
+                    currency=currency
+                )
                 #don't allow free shipping discounts when rest-of-world shipping option selected
                 if self._request.session.get("shipping_type", None) == settings.FREIGHT_WORLD and discount.free_shipping:
                     error = _("Free shipping not valid with that shipping option.")
@@ -356,9 +369,10 @@ class DiscountForm(forms.ModelForm):
         """
         Assigns the session variables for the discount.
         """
+        currency = session_currency(self._request)
         discount = getattr(self, "_discount", None)
         if discount is not None:
-            total = self._request.cart.calculate_discount(discount)
+            total = self._request.cart.calculate_discount(discount, currency)
             if discount.free_shipping:
                 set_shipping(self._request, _("Free shipping"), 0)
             self._request.session["free_shipping"] = discount.free_shipping
