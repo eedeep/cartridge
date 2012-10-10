@@ -94,6 +94,14 @@ def initial_order_data(request):
                 initial[f] != initial[shipping(f)]]):
                 initial["same_billing_shipping"] = False
     initial['discount_code'] = request.session.get('discount_code', None)
+
+    if 'shipping_detail_country' not in initial:
+        currency = request.session['currency']
+        store_config = settings.STORE_CONFIGS[currency]
+        default_country = store_config.name.upper()
+        initial['shipping_detail_country'] = default_country
+        initial['billing_detail_country'] = default_country
+
     return initial
 
 

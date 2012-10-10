@@ -16,14 +16,21 @@ from django.forms.models import inlineformset_factory
 from django.utils.datastructures import SortedDict
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
+from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
+from django.db.models.fields.related import ManyToManyRel
 
 from mezzanine.conf import settings
 from mezzanine.core.templatetags.mezzanine_tags import thumbnail
 
 from cartridge.shop import checkout
-from cartridge.shop.models import Product, ProductOption, ProductVariation
+from cartridge.shop.models import Product, ProductOption, ProductVariation, \
+                                    ProductSyncRequest
 from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
 from cartridge.shop.utils import make_choices, set_locale, set_shipping, set_discount
+
+from cartridge_deps.widgets import FasterFilteredSelectMultiple
+
+from cartridge.taggit.models import Tag
 
 from countries.models import Country
 
@@ -48,6 +55,14 @@ class JoshRadioInput(widgets.RadioInput):
             label_for = ''
         choice_label = conditional_escape(force_unicode(self.choice_label))
         return mark_safe(u'%s<label%s>%s</label>' % (self.tag(), label_for, choice_label))
+
+class ScheduleForSyncWidget(widgets.CheckboxInput):
+    def render(self, name, value, attrs=None):
+        if value:
+            return  mark_safe('An imminent image sync request is currently pending '
+                'for this product. It should be complete in a few minutes.')
+        else:
+            return super(ScheduleForSyncWidget, self).render(name, value, attrs)
 
 class JoshRadioFieldRenderer(widgets.RadioFieldRenderer):
     def __iter__(self):
@@ -102,7 +117,7 @@ class AddProductForm(forms.Form):
         option_names, option_labels = zip(*[(f.name, f.verbose_name)
             for f in ProductVariation.option_fields()])
         option_values = zip(*self._product.variations.filter(
-            unit_price__isnull=False).values_list(*option_names))
+                unit_price__isnull=False).values_list(*option_names))
 
         # Only include variations that have stock and images
         option1_list = dict()
@@ -115,27 +130,34 @@ class AddProductForm(forms.Form):
                 continue
             option1_list[variation.option1] = variation.total_in_stock > 0
 
-        if option_values:
-           for i, name in enumerate(option_names):
-               if name == 'option1':
-                   # Don't display style if it's out of stock
-                   values = filter(lambda x: x in option1_list and option1_list[x],
-                                   set(option_values[i]))
-                   if len(values) == 0 and len(option_values[i]) > 0:
-                       values = [option_values[i][0]]
-               else:
-                   values = filter(None, set(option_values[i]))
-               if values:
-                   choices = make_choices(
-                       ProductOption.objects.filter(name__in=values,
-                                                    type=i+1).order_by(
-                           "ranking").values_list("name", flat=True))
-                   kwargs = {"label":(option_labels[i]),
-                             "choices":[(x[0], ProductOption.colourName(x[1])) for x in choices]}
-                   if name == "option%s"%settings.OPTION_SIZE: #use radio for size
-                        kwargs["widget"] = JoshRadioSelect
-                   field = forms.ChoiceField(**kwargs)
-                   self.fields[name] = field
+        if not option_values:
+            return
+        OPTION_SIZE = "option%s" % settings.OPTION_SIZE
+        for i, name in enumerate(option_names):
+            if name != OPTION_SIZE:
+                # Don't display style if it's out of stock
+                values = filter(lambda x: x in option1_list and option1_list[x],
+                                set(option_values[i]))
+                if len(values) == 0 and len(option_values[i]) > 0:
+                    values = [option_values[i][0]]
+            else:
+                values = filter(None, set(option_values[i]))
+            if values:
+                if name == OPTION_SIZE:
+                    choices = make_choices(
+                        ProductOption.objects.filter(name__in=values,
+                                                     type=i+1).order_by(
+                            "ranking").values_list("name", flat=True))
+                    kwargs = {"label":option_labels[i],
+                              "choices":[(x[0], x[1]) for x in choices]}
+                    kwargs["widget"] = JoshRadioSelect
+                else:
+                    kwargs = {"label":(option_labels[i]),
+                              "choices":[
+                            (x, ProductOption.colourName(x))
+                            for x in values]}
+                field = forms.ChoiceField(**kwargs)
+                self.fields[name] = field
 
     def clean(self):
         """
@@ -393,15 +415,6 @@ class OrderForm(FormsetForm, DiscountForm):
         # Copy billing fields to shipping fields if "same" checked.
         first = step == checkout.CHECKOUT_STEP_FIRST
         last = step == checkout.CHECKOUT_STEP_LAST
-        if (first and data is not None and "same_billing_shipping" in data):
-            data = copy(data)
-            # Prevent second copy occuring for forcing step below when
-            # moving backwards in steps.
-            data["step"] = step
-            for field in data:
-                billing = field.replace("shipping_detail", "billing_detail")
-                if "shipping_detail" in field and billing in data:
-                    data[field] = data[billing]
 
         if initial is not None:
             initial["step"] = step
@@ -551,6 +564,13 @@ class ProductAdminForm(forms.ModelForm):
     """
     Admin form for the Product model.
     """
+    tags = forms.ModelMultipleChoiceField(
+        queryset=Tag.objects.all(),
+        label='Tags',
+        required=False,
+        widget=FasterFilteredSelectMultiple('Tags', False),
+    )
+
     __metaclass__ = ProductAdminFormMetaclass
 
     class Meta:
@@ -563,13 +583,22 @@ class ProductAdminForm(forms.ModelForm):
         upsell products.
         """
         super(ProductAdminForm, self).__init__(*args, **kwargs)
+
+        # The following two lines give the tags widget the '+' icon
+        rel = ManyToManyRel(Tag, 'id')
+        self.fields['tags'].widget = RelatedFieldWidgetWrapper(
+            self.fields['tags'].widget, rel, self.admin_site
+        )
+
         for field, options in ProductOption.objects.as_fields().items():
             self.fields[field].choices = make_choices(options)
+
         instance = kwargs.get("instance")
         if instance:
             queryset = Product.objects.exclude(id=instance.id)
             self.fields["related_products"].queryset = queryset
             self.fields["upsell_products"].queryset = queryset
+            self.initial['tags'] = instance.tags.all().values_list('id', flat=True)
 
 
 class ProductVariationAdminForm(forms.ModelForm):
@@ -608,3 +637,21 @@ class DiscountAdminForm(forms.ModelForm):
             error = _("Please enter a value for only one type of reduction.")
             self._errors[fields[0]] = self.error_class([error])
         return self.cleaned_data
+
+
+class TagAdminForm(forms.ModelForm):
+    products = forms.ModelMultipleChoiceField(
+        queryset=Product.objects.all(),
+        label='Products',
+        required=False,
+        widget=FasterFilteredSelectMultiple('Products', False)
+    )
+
+    class Meta:
+        model = Tag
+
+    def __init__(self, *args, **kwargs):
+        super(TagAdminForm, self).__init__(*args, **kwargs)
+        instance = kwargs.get("instance")
+        if instance:
+            self.initial['products'] = instance.taggit_taggeditem_items.all().values_list('object_id', flat=True)

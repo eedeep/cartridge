@@ -1,4 +1,9 @@
+import hashlib
 import itertools
+import logging
+from urllib2 import urlopen, URLError
+
+logger = logging.getLogger("cottonon")
 
 from django.contrib.messages import info
 from django.core.urlresolvers import get_callable, reverse
@@ -11,6 +16,7 @@ from django.utils import simplejson
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
+from django.core.cache import cache
 from django.db.models import Sum
 
 from mezzanine.conf import settings
@@ -46,7 +52,7 @@ payment_handler = handler(settings.SHOP_HANDLER_PAYMENT)
 order_handler = handler(settings.SHOP_HANDLER_ORDER)
 
 
-def product(request, slug, template="shop/product.html"):
+def product(request, slug, template="shop/product.html", extends_template="base.html"):
     """
     Display a product - convert the product variations to JSON as well as
     handling adding the product to either the cart or the wishlist.
@@ -88,15 +94,32 @@ def product(request, slug, template="shop/product.html"):
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
                                         for f in fields])
                                         for v in variations])
+    currency = session_currency(request)
     context = {
         "product": product,
+        "extends_template": extends_template,
         "images": product.reduced_image_set(variations),
         "variations": variations,
         "variations_json": variations_json,
-        "has_available_variations": any(v.has_price(session_currency(request)) for v in variations),
+        "has_available_variations": any(v.has_price(currency) for v in variations),
         "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
         }
+
+    cache_key = generate_cache_key(request)
+    cached_data = cache.get(cache_key, None)
+    if cached_data and 'invalidate-cache' not in request.GET:
+        context.update(cached_data)
+    elif len(variations) > 0:
+        variation = variations[0]
+        cached_context = dict(
+            keywords=','.join([str(x) for x in product.keywords.all()]),
+            size_chart=product.size_chart,
+            has_price=variation.has_price(currency),
+            on_sale=variation.on_sale(currency),
+            is_marked_down=variation.is_marked_down(currency))
+        cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
+        context.update(cached_context)
 
     #Get the first promotion for this object
     if Promotion:
@@ -106,6 +129,13 @@ def product(request, slug, template="shop/product.html"):
             context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
 
+def generate_cache_key(request):
+    ctx = hashlib.md5()
+    ctx.update(
+        request.get_full_path().replace('?invalidate-cache', '')
+    )
+    ctx.update(session_currency(request))
+    return ctx.hexdigest()
 
 def wishlist(request, template="shop/wishlist.html"):
     """
@@ -199,7 +229,7 @@ def _shipping_form_for_cart(request, currency):
             shipping_option = settings.FREIGHT_DEFAULTS[currency]
     return ShippingForm(request, currency, {"id": shipping_option})
 
-def cart(request, template="shop/cart.html"):
+def cart(request, template="shop/cart.html", extends_template="base.html"):
     """
     Display cart and handle removing items from the cart.
     """
@@ -240,9 +270,12 @@ def cart(request, template="shop/cart.html"):
     context = {"cart_formset": cart_formset}
     settings.use_editable()
     if (settings.SHOP_DISCOUNT_FIELD_IN_CART and
-        DiscountCode.objects.active().count() > 0):
+        len(DiscountCode.objects.active()[:1]) > 0):
         context["discount_form"] = discount_form
     context["shipping_form"] = shipping_form
+
+    context["extends_template"] = extends_template
+
     if request.is_ajax():
         return HttpResponse(_discount_data(request, discount_form), "application/javascript")
     else:
@@ -270,7 +303,7 @@ def finalise_order(transaction_id, request, order, remember):
 
 
 @never_cache
-def checkout_steps(request):
+def checkout_steps(request, extends_template="base.html"):
     """
     Display the order form and handle processing of each step.
     """
@@ -291,14 +324,14 @@ def checkout_steps(request):
     data = request.POST
     checkout_errors = []
 
-    cart = Cart.objects.from_request(request)
+    cart = request.cart
     no_stock = cart.has_no_stock()
     if request.POST.get("back") is not None:
         # Back button in the form was pressed - load the order form
         # for the previous step and maintain the field values entered.
         step -= 1
         form = form_class(request, step, initial=initial)
-    elif request.method == "POST":
+    elif request.method == "POST" and cart.has_items():
         sensitive_card_fields = ("card_number", "card_expiry_month",
                                  "card_expiry_year", "card_ccv")
         form = form_class(request, step, initial=initial, data=data)
@@ -350,13 +383,13 @@ def checkout_steps(request):
                         pareq=threed_exc.get_pareq()
                     )
                     threed_txn.save()
-                    return threed_exc.get_redirect_response(request, threed_txn.transaction_slug)
+                    return threed_exc.get_redirect_response(request, threed_txn.transaction_slug, extends_template)
                 else:
                     response = finalise_order(
                         transaction_id,
                         request,
                         order,
-                        form.cleaned_data.get('remeber')
+                        form.cleaned_data.get('remember')
                     )
                     return response
 
@@ -373,6 +406,7 @@ def checkout_steps(request):
     CHECKOUT_STEP_FIRST = step == checkout.CHECKOUT_STEP_FIRST
     form.label_suffix = ''
     context = {"form": form, "CHECKOUT_STEP_FIRST": CHECKOUT_STEP_FIRST,
+               "extends_template": extends_template,
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step,
                'no_stock':no_stock}
@@ -394,7 +428,22 @@ def abort(request, transaction_slug, template="shop/aborted.html"):
     return render(request, template)
 
 
-def complete(request, template="shop/complete.html"):
+def exchange_rates():
+    cache_key = 'exchange-rates'
+    data = cache.get(cache_key, None)
+    if data:
+        return data
+    try:
+        response = urlopen('http://openexchangerates.org/api/latest.json?app_id=377193e83fbb41d592e4521a8ec7d35e', timeout=5)
+        if response.getcode() == 200:
+            json_rates = response.read()
+    except URLError:
+        logger.error('The exchange rates API is unreachable')
+        json_rates = '{"rates":{"AUD":0.966098, "USD": 1, "MYR": 3.074717, "HKD": 7.75365, "SGD": 1.22935}}'
+    cache.set(cache_key, json_rates, 3600 * 24)
+    return json_rates
+
+def complete(request, template="shop/complete.html", extends_template="base.html"):
     """
     Redirected to once an order is complete - pass the order object
     for tracking items via Google Anayltics, and displaying in
@@ -415,11 +464,13 @@ def complete(request, template="shop/complete.html"):
     for i, item in enumerate(items):
         setattr(items[i], "name", names[item.sku])
     context = {"order": order, "items": items,
+               "extends_template": extends_template,
+               'exchange_rates': exchange_rates(),
                "steps": checkout.CHECKOUT_STEPS}
     return render(request, template, context)
 
 
-def invoice(request, order_id, template="shop/order_invoice.html"):
+def invoice(request, order_id, template="shop/order_invoice.html", extends_template="base.html"):
     """
     Display a plain text invoice for the given order. The order must
     belong to the user which is checked via session or ID if
@@ -431,9 +482,15 @@ def invoice(request, order_id, template="shop/order_invoice.html"):
     elif not request.user.is_staff:
         lookup["user_id"] = request.user.id
     order = get_object_or_404(Order, **lookup)
-    context = {"order": order}
+
+    context = {
+        "order": order,
+        "extends_template": extends_template,
+        }
+
     context.update(order.details_as_dict())
     context = RequestContext(request, context)
+
     if request.GET.get("format") == "pdf":
         response = HttpResponse(mimetype="application/pdf")
         name = slugify("%s-invoice-%s" % (settings.SITE_TITLE, order.id))
