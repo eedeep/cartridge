@@ -883,7 +883,7 @@ class Cart(models.Model):
         with_cart_excluded = for_cart.exclude(variations__sku__in=self.skus())
         return list(with_cart_excluded.distinct())
 
-    def calculate_discount(self, discount):
+    def calculate_discount(self, discount, currency):
         """
         Calculates the discount based on the items in a cart, some
         might have the discount, others might not.
@@ -891,7 +891,7 @@ class Cart(models.Model):
         # Discount applies to cart total if not product specific.
         products = discount.all_products()
         if products.count() == 0:
-            return discount.calculate(self.total_price())
+            return discount.calculate(self.total_price(), currency)
         total = Decimal("0")
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
@@ -900,7 +900,7 @@ class Cart(models.Model):
         discount_skus = discount_variations.values_list("sku", flat=True)
         for item in self:
             if item.sku in discount_skus:
-                total += discount.calculate(item.unit_price) * item.quantity
+                total += discount.calculate(item.unit_price, currency) * item.quantity
         return total
 
     def has_no_stock(self):
@@ -1161,26 +1161,30 @@ class DiscountCode(Discount, DiscountCodeUniqueAbstract):
 
     objects = managers.DiscountCodeManager()
 
-    def calculate(self, amount):
+    def calculate(self, amount, currency):
         """
         Calculates the discount for the given amount.
         """
-        if self.discount_deduct is not None:
+        discount_deduct = getattr(self, "_discount_deduct_{}".format(
+            currency.lower()
+        ))
+        if discount_deduct is not None:
             # Don't apply to amounts that would be negative after
             # deduction.
-            if self.discount_deduct < amount:
-                return self.discount_deduct
+            if discount_deduct < amount:
+                return discount_deduct
         elif self.discount_percent is not None:
-            return amount / Decimal("100") * self.discount_percent
+            discount =  amount / Decimal("100") * self.discount_percent
+            return discount.quantize(Decimal('0.01'), rounding=ROUND_UP)
         return 0
 
-    def calculate_cart(self, cart):
+    def calculate_cart(self, cart, currency):
         """
         Calculates the discount based on the items in the cart
         """
         #if not applied to individual products or categories, discount the entire cart (as per the original cartridge functionality)
         if self.products.count() == 0 and self.categories.count() == 0:
-            return self.calculate(cart.total_price())
+            return self.calculate(cart.total_price(), currency)
         #or, since there are products and categories, loop through cart and calc.
         discount = Decimal("0")
         #the products that can be discounted
@@ -1189,7 +1193,7 @@ class DiscountCode(Discount, DiscountCodeUniqueAbstract):
 
         for item in cart:
             if products.filter(variations__sku=item.sku).count()>0: #apply a discount to this product
-                discount += self.calculate(item.total_price)
+                discount += self.calculate(item.total_price, currency)
         discount = discount.quantize(Decimal('0.01'), rounding=ROUND_UP)
         return discount
 
