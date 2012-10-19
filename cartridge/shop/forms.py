@@ -34,6 +34,7 @@ from cartridge.taggit.models import Tag
 
 from countries.models import Country
 
+from multicurrency.models import MultiCurrencyProductVariation
 from multicurrency.templatetags.multicurrency_tags import local_currency
 from multicurrency.utils import session_currency
 
@@ -358,6 +359,23 @@ class DiscountForm(forms.ModelForm):
                 if self._request.session.get("shipping_type", None) == settings.FREIGHT_WORLD and discount.free_shipping:
                     error = _("Free shipping not valid with that shipping option.")
                     raise forms.ValidationError(error)
+
+                # check if the cart content if compatible with discount codes
+                only_promo = True
+                for cartitem in cart.items.all():
+                    if discount.free_shipping:
+                        only_promo = False
+                        break
+                    try:
+                        mc_variation = MultiCurrencyProductVariation.objects.get(sku=cartitem.sku)
+                    except MultiCurrencyProductVariation.DoesNotExist:
+                        raise forms.ValidationError(_('Invalid product'))
+                    if (not mc_variation.on_sale(currency) and
+                        not mc_variation.is_marked_down(currency)):
+                        only_promo = False
+                        break
+                if only_promo:
+                    raise forms.ValidationError(_('The discount code cannot be used on product on sale or marked down products.'))
                 self._discount = discount
             except DiscountCode.DoesNotExist:
                 set_discount(self._request, None) #remove discount

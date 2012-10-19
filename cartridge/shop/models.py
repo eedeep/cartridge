@@ -898,8 +898,10 @@ class Cart(models.Model):
         lookup = {"product__in": products, "sku__in": self.skus()}
         discount_variations = ProductVariation.objects.filter(**lookup)
         discount_skus = discount_variations.values_list("sku", flat=True)
+        from multicurrency.models import MultiCurrencyProductVariation
         for item in self:
-            if item.sku in discount_skus:
+            mc_variation = MultiCurrencyProductVariation.objects.get(sku=item.sku)
+            if item.sku in discount_skus and not (mc_variation.on_sale(currency) or mc_variation.is_marked_down(currency)):
                 total += discount.calculate(item.unit_price, currency) * item.quantity
         return total
 
