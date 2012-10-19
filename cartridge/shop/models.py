@@ -684,7 +684,7 @@ class Order(models.Model):
 
     # These are fields that are stored in the session. They're copied to
     # the order in setup() and removed from the session in complete().
-    session_fields = ("shipping_type", "shipping_total", "discount_total")
+    session_fields = ("shipping_type", "shipping_total", "discount_total", "tax_total")
 
     class Meta:
         verbose_name = _("Order")
@@ -719,6 +719,9 @@ class Order(models.Model):
         if self.shipping_total is not None:
             self.shipping_total = Decimal(str(self.shipping_total))
             self.total += self.shipping_total
+        # Note that tax_total is not a persistent model field at this stage
+        if self.tax_total is not None:
+            self.total += self.tax_total
         if self.discount_total is not None:
             self.total -= self.discount_total
         self.currency = session_currency(request)
