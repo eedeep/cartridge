@@ -261,7 +261,8 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
             if shipping_valid:
                 shipping_form.set_shipping()
             valid = True if discount_valid and shipping_valid else False
-
+            if not request.is_ajax() and shipping_valid:
+                return redirect('shop_checkout')
         if valid:
             if request.is_ajax():
                 return HttpResponse(_discount_data(request, discount_form), "application/javascript")
