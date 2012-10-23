@@ -23,40 +23,38 @@ class CartManager(Manager):
             return request.cart
         expiry_minutes = timedelta(minutes=settings.SHOP_CART_EXPIRY_MINUTES)
         expiry_time = datetime.now() - expiry_minutes
-        create_cart = False
-        try:
-            cart_id = request.session.get("cart", None)
-            cart = self.get(last_updated__gte=expiry_time, id=cart_id)
-        except self.model.DoesNotExist:
+        cart_id = request.session.get("cart", None)
+        cart = None
+        if cart_id:
             try:
-                old_cart = self.get(id=cart_id)
-            except self.model.DoesNotExist: #completely new cart
-                pass
-            else: #found an old expired cart
+                cart = self.get(last_updated__gte=expiry_time, id=cart_id)
+            except self.model.DoesNotExist:
                 try:
-                    logging.warning(
-                        "can not use request cart {}, it expired on {}. Expiry cut off is currently {}"\
-                        .format(
-                            cart_id,
-                            old_cart.last_updated.strftime("%c"),
-                            expiry_time.strftime("%c"),
-                        )
-                    )
-                except ValueError:
+                    old_cart = self.get(id=cart_id)
+                except self.model.DoesNotExist: #completely new cart
                     pass
-            self.filter(last_updated__lt=expiry_time).delete()
-            cart = self.create()
-            request.session["cart"] = cart.id
-            create_cart = True
-        else:
-            if (create_cart or
-                not (request.path == '/' or
-                     request.path.startswith('/shop/women/') or
-                     request.path.startswith('/shop/rubi/') or
-                     request.path.startswith('/shop/typo/'))):
+                else: #found an old expired cart
+                    try:
+                        logging.warning(
+                            "can not use request cart {}, it expired on {}. Expiry cut off is currently {}"\
+                            .format(
+                                cart_id,
+                                old_cart.last_updated.strftime("%c"),
+                                expiry_time.strftime("%c"),
+                            )
+                        )
+                    except ValueError:
+                        pass
+                self.filter(last_updated__lt=expiry_time).delete()
+                cart = self.create()
+                request.session["cart"] = cart.id
+            else:
                 cart.timestamp_save_only = True #provided so promotions only apply when cart changes
                 cart.save()  # Update timestamp.
                 cart.timestamp_save_only = False
+        if not cart:
+            from cartridge.shop.utils import EmptyCart
+            cart = EmptyCart(request)
         return cart
 
 
