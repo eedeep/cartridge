@@ -35,7 +35,8 @@ from cartridge.taggit.models import Tag
 from countries.models import Country
 
 from multicurrency.templatetags.multicurrency_tags import local_currency
-from multicurrency.utils import session_currency
+from multicurrency.utils import session_currency, local_freight_types, \
+    get_freight_type_for_id
 
 
 ADD_PRODUCT_ERRORS = {
@@ -286,11 +287,13 @@ class ShippingForm(forms.Form):
     id = forms.ChoiceField()
     def __init__(self, request, currency, data=None, initial=None):
         super(ShippingForm, self).__init__(data=data, initial=initial)
-        self._shipping_options = settings.FREIGHT_COSTS.get(currency, None)
+        self._shipping_options = local_freight_types(session_currency(request))
+        choices = []
         if self._shipping_options:
-            choices =  [(k,"%s (%s) %s"%(v[3], local_currency({"request":request}, v[0]), k.title())) for (k,v) in self._shipping_options.items()]
-        else:
-            choices = []
+            currency_format = settings.STORE_CONFIGS[session_currency(request)].currency_format
+            self._shipping_options.sort(key=lambda f: f.default, reverse=True)
+            for ft in self._shipping_options:
+                choices.append((ft.id, "{0} ({1}) {2}".format(ft.id, currency_format, ft.charge)))
         self.fields["id"] = forms.ChoiceField(choices=choices)
         self._request = request
         self._currency = currency
@@ -307,12 +310,16 @@ class ShippingForm(forms.Form):
                 cart=self._request.cart,
                 currency=self._currency,
             )
-            if shipping_option == settings.FREIGHT_WORLD and discount.free_shipping:
+            if shipping_option == settings.REST_OF_WORLD and discount.free_shipping:
                 discount = None
         except DiscountCode.DoesNotExist:
             discount = None
         if shipping_option is not None:
-            shipping_cost = Decimal(str(self._shipping_options.get(shipping_option)[0])) #from settings.FREIGHT_OPTIONS
+            shipping_cost = Decimal(
+                get_freight_type_for_id(
+                    session_currency(self._request), shipping_option
+                ).charge
+            )
             set_shipping(self._request, shipping_option, shipping_cost)
             if discount:
                 total = self._request.cart.calculate_discount(

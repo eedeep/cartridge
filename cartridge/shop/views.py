@@ -31,7 +31,8 @@ from cartridge.shop.utils import recalculate_discount, sign
 
 #TODO remove multicurrency imports from cartridge
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
-from multicurrency.utils import session_currency
+from multicurrency.utils import \
+    session_currency, default_local_freight_type, is_local_shipping_option
 from multicurrency.templatetags.multicurrency_tags import \
     local_currency, formatted_price, _order_totals
 
@@ -226,8 +227,8 @@ def _shipping_form_for_cart(request, currency):
     shipping_option = request.POST.get("shipping_option", None)
     if not shipping_option:
         shipping_option = request.session.get("shipping_type")
-        if shipping_option is None or shipping_option not in settings.FREIGHT_COSTS[currency]:
-            shipping_option = settings.FREIGHT_DEFAULTS[currency]
+        if shipping_option is None or not is_local_shipping_option(currency, shipping_option):
+            shipping_option = default_local_freight_type(currency).id
     return ShippingForm(request, currency, {"id": shipping_option})
 
 def cart(request, template="shop/cart.html", extends_template="base.html"):
