@@ -732,6 +732,14 @@ class Order(models.Model):
             product_fields.extend([f.name for f in item._meta.fields if "promotion" in f.name])
             item = dict([(f, getattr(item, f)) for f in product_fields])
             self.items.create(**item)
+        for item in request.cart:
+            try:
+                variation = ProductVariation.objects.get(sku=item.sku)
+            except ProductVariation.DoesNotExist:
+                pass
+            else:
+                variation.reduce_stock(item.quantity)
+                variation.product.actions.purchased()
 
     def complete(self, request):
         """
@@ -747,14 +755,6 @@ class Order(models.Model):
             if field in request.session:
                 del request.session[field]
         del request.session["order"]
-        for item in request.cart:
-            try:
-                variation = ProductVariation.objects.get(sku=item.sku)
-            except ProductVariation.DoesNotExist:
-                pass
-            else:
-                variation.reduce_stock(item.quantity)
-                variation.product.actions.purchased()
 
         # If a discount code was used and it was a unique discount code
         # (ie, no_of_allowed_uses > 0) then we increment the number of times

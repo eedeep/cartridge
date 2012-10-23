@@ -373,8 +373,18 @@ def checkout_steps(request, extends_template="base.html"):
                 try:
                     transaction_id = payment_handler(request, form, order)
                 except checkout.CheckoutError, e:
-                    # Error in payment handler.
+                    # Revert product stock changes and delete order
+                    for item in request.cart:
+                        try:
+                            variation = ProductVariation.objects.get(sku=item.sku)
+                        except ProductVariation.DoesNotExist:
+                            pass
+                        else:
+                            amount = item.quantity
+                            variation.num_in_stock += amount
+                            variation.num_in_stock_pool += amount
                     order.delete()
+                    # Error in payment handler.
                     checkout_errors.append(e)
                     if settings.SHOP_CHECKOUT_STEPS_CONFIRMATION:
                         step -= 1
