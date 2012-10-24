@@ -21,38 +21,16 @@ class CartManager(Manager):
         """
         if hasattr(request, 'cart'):
             return request.cart
-        expiry_minutes = timedelta(minutes=settings.SHOP_CART_EXPIRY_MINUTES)
-        expiry_time = datetime.now() - expiry_minutes
         cart_id = request.session.get("cart", None)
-        cart = None
         if cart_id:
             try:
-                cart = self.get(last_updated__gte=expiry_time, id=cart_id)
+                cart = self.get(id=cart_id)
             except self.model.DoesNotExist:
-                try:
-                    old_cart = self.get(id=cart_id)
-                except self.model.DoesNotExist: #completely new cart
-                    pass
-                else: #found an old expired cart
-                    try:
-                        logging.warning(
-                            "can not use request cart {}, it expired on {}. Expiry cut off is currently {}"\
-                            .format(
-                                cart_id,
-                                old_cart.last_updated.strftime("%c"),
-                                expiry_time.strftime("%c"),
-                            )
-                        )
-                    except ValueError:
-                        pass
-                self.filter(last_updated__lt=expiry_time).delete()
                 cart = self.create()
                 request.session["cart"] = cart.id
             else:
-                cart.timestamp_save_only = True #provided so promotions only apply when cart changes
-                cart.save()  # Update timestamp.
                 cart.timestamp_save_only = False
-        if not cart:
+        else:
             from cartridge.shop.utils import EmptyCart
             cart = EmptyCart(request)
         return cart
