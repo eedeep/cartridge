@@ -11,6 +11,40 @@ from django.utils.translation import ugettext as _
 
 from mezzanine.conf import settings
 
+class EmptyCart(object):
+    """
+A dummy cart object used before any items have been added.
+Used to avoid querying the database for cart and items on each
+request.
+"""
+
+    id = None
+    currency = None
+    has_items = lambda *a, **k: False
+    skus = lambda *a, **k: []
+    upsell_products = lambda *a, **k: []
+    total_quantity = lambda *a, **k: 0
+    total_price = lambda *a, **k: 0
+    calculate_discount = lambda *a, **k: 0
+    __int__ = lambda *a, **k: 0
+    __iter__ = lambda *a, **k: iter([])
+    switch_currency = lambda *a: None
+    def __init__(self, request):
+        """
+Store the request so we can add the real cart ID to the
+session if any items get added.
+"""
+        self._request = request
+
+    def add_item(self, *args, **kwargs):
+        """
+Create a real cart object, add the items to it and store
+the cart ID in the session.
+"""
+        from multicurrency.models import MultiCurrencyCart
+        cart = MultiCurrencyCart.objects.create(currency=self.currency)
+        cart.add_item(*args, **kwargs)
+        self._request.session["cart"] = cart.id
 
 def make_choices(choices):
     """
