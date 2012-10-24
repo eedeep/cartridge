@@ -17,7 +17,8 @@ from django.utils import simplejson
 
 from mezzanine.conf import settings
 from mezzanine.core.managers import DisplayableManager, PublishedManager
-from mezzanine.core.models import Displayable, RichText, Orderable, CONTENT_STATUS_DRAFT, CONTENT_STATUS_CHOICES
+from mezzanine.core.models import Displayable, RichText, Orderable
+from mezzanine.core.models import CONTENT_STATUS_PUBLISHED, CONTENT_STATUS_DRAFT, CONTENT_STATUS_CHOICES
 from mezzanine.generic.fields import RatingField
 from mezzanine.pages.models import Page
 
@@ -173,6 +174,7 @@ class Product(Displayable, Priced, RichText):
                                         related_name="products")
     date_added = models.DateTimeField(_("Date added"), auto_now_add=True,
                                       null=True)
+    first_published_date = models.DateTimeField(_("First Published"), blank=True, null=True)
     sync_images = models.BooleanField(_("Schedule Image Sync"), default=False)
     date_images_last_synced = models.DateTimeField(
         _("Images Last Synced"), null=True,
@@ -313,6 +315,9 @@ class Product(Displayable, Priced, RichText):
             if variation.has_stock():
                 self.in_stock = True
                 break
+
+        if not self.first_published_date and self.status == CONTENT_STATUS_PUBLISHED:
+            self.first_published_date = datetime.now()
 
         #store available variation colours on the product
         style_field = "option%i" % settings.OPTION_STYLE
