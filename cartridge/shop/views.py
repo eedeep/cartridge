@@ -227,7 +227,8 @@ def _shipping_form_for_cart(request, currency):
     shipping_option = request.POST.get("shipping_option", None)
     if not shipping_option:
         shipping_option = request.session.get("shipping_type")
-        if shipping_option is None or not is_local_shipping_option(currency, shipping_option):
+        if shipping_option is None or not is_local_shipping_option(currency, shipping_option) or \
+            shipping_option == settings.FREE_SHIPPING:
             shipping_option = default_local_freight_type(currency).id
     return ShippingForm(request, currency, {"id": shipping_option})
 

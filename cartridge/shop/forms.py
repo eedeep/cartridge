@@ -285,6 +285,7 @@ class FormsetForm(object):
 
 class ShippingForm(forms.Form):
     id = forms.ChoiceField()
+
     def __init__(self, request, currency, data=None, initial=None):
         super(ShippingForm, self).__init__(data=data, initial=initial)
         self._shipping_options = displayable_local_freight_types(session_currency(request))
