@@ -35,8 +35,8 @@ from cartridge.taggit.models import Tag
 from countries.models import Country
 
 from multicurrency.templatetags.multicurrency_tags import local_currency
-from multicurrency.utils import session_currency, local_freight_types, \
-    get_freight_type_for_id
+from multicurrency.utils import session_currency, \
+    displayable_local_freight_types, get_freight_type_for_id
 
 
 ADD_PRODUCT_ERRORS = {
@@ -287,7 +287,7 @@ class ShippingForm(forms.Form):
     id = forms.ChoiceField()
     def __init__(self, request, currency, data=None, initial=None):
         super(ShippingForm, self).__init__(data=data, initial=initial)
-        self._shipping_options = local_freight_types(session_currency(request))
+        self._shipping_options = displayable_local_freight_types(session_currency(request))
         choices = []
         if self._shipping_options:
             currency_format = settings.STORE_CONFIGS[session_currency(request)].currency_format
@@ -327,7 +327,7 @@ class ShippingForm(forms.Form):
                     self._currency
                 )
                 if discount.free_shipping:
-                    set_shipping(self._request, _("Free shipping"), 0)
+                    set_shipping(self._request, settings.FREE_SHIPPING, 0)
                 self._request.session["free_shipping"] = discount.free_shipping
                 self._request.session["discount_total"] = total
 
@@ -381,7 +381,7 @@ class DiscountForm(forms.ModelForm):
         if discount is not None:
             total = self._request.cart.calculate_discount(discount, currency)
             if discount.free_shipping:
-                set_shipping(self._request, _("Free shipping"), 0)
+                set_shipping(self._request, settings.FREE_SHIPPING, 0)
             self._request.session["free_shipping"] = discount.free_shipping
             self._request.session["discount_code"] = discount.code
             if self._request.session.has_key('order'):
