@@ -26,6 +26,8 @@ request.
     total_quantity = lambda *a, **k: 0
     total_price = lambda *a, **k: 0
     calculate_discount = lambda *a, **k: 0
+    has_no_stock = lambda *a, **k: []
+    has_items = lambda *a, **k: False
     __int__ = lambda *a, **k: 0
     __iter__ = lambda *a, **k: iter([])
     switch_currency = lambda *a: None

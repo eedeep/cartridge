@@ -69,6 +69,14 @@ def initial_order_data(request):
     authenticated user, or from previous the order cookie set with
     "remember my details".
     """
+    # This seems somewhat arbitrary as a place to put this but
+    # we want to clear any previously calculated tax from the session
+    # because we don't want it being rendered at any point prior to the 
+    # payments page. This is largely due to US tax calculations being 
+    # dependent on the shipping address specified by the customer
+    request.session.pop('tax_total', None)
+    request.session.pop('tax_type', None)
+
     if request.method == "POST":
         return dict(request.POST.items())
     if "order" in request.session:
@@ -94,6 +102,7 @@ def initial_order_data(request):
                 initial[f] != initial[shipping(f)]]):
                 initial["same_billing_shipping"] = False
     initial['discount_code'] = request.session.get('discount_code', None)
+
 
     if 'shipping_detail_country' not in initial:
         currency = request.session['currency']

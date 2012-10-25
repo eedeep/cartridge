@@ -725,7 +725,7 @@ class Order(models.Model):
             self.shipping_total = Decimal(str(self.shipping_total))
             self.total += self.shipping_total
         # Note that tax_total is not a persistent model field at this stage
-        if self.tax_total is not None:
+        if hasattr(self, 'tax_total') and self.tax_total is not None:
             self.total += self.tax_total
         if self.discount_total is not None:
             self.total -= self.discount_total
