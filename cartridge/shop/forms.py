@@ -362,7 +362,7 @@ class DiscountForm(forms.ModelForm):
                     currency=currency
                 )
                 #don't allow free shipping discounts when rest-of-world shipping option selected
-                if self._request.session.get("shipping_type", None) == settings.FREIGHT_WORLD and discount.free_shipping:
+                if self._request.session.get("shipping_type", None) == settings.REST_OF_WORLD and discount.free_shipping:
                     error = _("Free shipping not valid with that shipping option.")
                     raise forms.ValidationError(error)
                 self._discount = discount
