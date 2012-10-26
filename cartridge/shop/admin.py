@@ -14,7 +14,7 @@ from cartridge.shop.forms import ProductVariationAdminFormset
 from cartridge.shop.forms import DiscountAdminForm, ImageWidget, MoneyWidget
 from cartridge.shop.models import Category, Product, ProductImage
 from cartridge.shop.models import ProductVariation, ProductOption, Order
-from cartridge.shop.models import OrderItem, Sale, DiscountCode
+from cartridge.shop.models import OrderItem, Sale, DiscountCode, BundleDiscount
 
 from cartridge_extras.forms import CategoryAdminForm
 
@@ -206,7 +206,7 @@ class OrderAdmin(admin.ModelAdmin):
         (_("Billing details"), {"fields": (tuple(billing_fields),)}),
         (_("Shipping details"), {"fields": (tuple(shipping_fields),)}),
         (None, {"fields": ("additional_instructions", ("shipping_total",
-            "shipping_type"), ("discount_total", "discount_code"),
+            "shipping_type"), ("discount_total", "discount_code", "bundle_discount_total"),
             "item_total", ("total", "status"), "transaction_id")}),
     )
 
@@ -250,9 +250,25 @@ class DiscountCodeAdmin(admin.ModelAdmin):
     )
 
 
+class BundleDiscountAdmin(admin.ModelAdmin):
+    list_display = ("title", "active", "quantity", "fixed_price",
+                    "valid_from", "valid_to")
+    list_editable = ("active", "valid_from", "valid_to")
+    model = BundleDiscount
+    filter_horizontal = ("categories", "products")
+    formfield_overrides = {MoneyField: {"widget": MoneyWidget}}
+    fieldsets = (
+        (None, {"fields": ("title", "active", "quantity", "fixed_price")}),
+        (_("Apply to product and/or products in categories"),
+            {"fields": ("products", "categories")}),
+        (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),
+    )
+
+
 admin.site.register(Category, CategoryAdmin)
 admin.site.register(Product, ProductAdmin)
 admin.site.register(ProductOption, ProductOptionAdmin)
 admin.site.register(Order, OrderAdmin)
 admin.site.register(Sale, SaleAdmin)
 admin.site.register(DiscountCode, DiscountCodeAdmin)
+admin.site.register(BundleDiscount, BundleDiscountAdmin)

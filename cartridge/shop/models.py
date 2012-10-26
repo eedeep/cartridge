@@ -15,6 +15,7 @@ from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
 from django.core.files.base import ContentFile
 from _mysql_exceptions import OperationalError
 from django.utils import simplejson
+from django.db.utils import DatabaseError
 
 from mezzanine.conf import settings
 from mezzanine.core.managers import DisplayableManager, PublishedManager
@@ -80,6 +81,7 @@ class Priced(models.Model):
     sale_price = fields.MoneyField(_("Sale price"))
     sale_from = models.DateTimeField(_("Sale start"), blank=True, null=True)
     sale_to = models.DateTimeField(_("Sale end"), blank=True, null=True)
+    bundle_discount_id = models.IntegerField(null=True)
 
     class Meta:
         abstract = True
@@ -639,6 +641,7 @@ class Order(models.Model):
     item_total = fields.MoneyField(_("Item total"))
     discount_code = fields.DiscountCodeField(_("Discount code"), blank=True)
     discount_total = fields.MoneyField(_("Discount total"))
+    bundle_discount_total = fields.MoneyField(_("Bundle discount total"))
     total = fields.MoneyField(_("Order total"))
     transaction_id = CharField(_("Transaction ID"), max_length=255, null=True,
                                blank=True)
@@ -665,7 +668,7 @@ class Order(models.Model):
 
     # These are fields that are stored in the session. They're copied to
     # the order in setup() and removed from the session in complete().
-    session_fields = ("shipping_type", "shipping_total", "discount_total", "tax_total")
+    session_fields = ("shipping_type", "shipping_total", "discount_total", "bundle_discount_total", "tax_total")
 
     class Meta:
         verbose_name = _("Order")
@@ -705,6 +708,8 @@ class Order(models.Model):
             self.total += self.tax_total
         if self.discount_total is not None:
             self.total -= self.discount_total
+        if self.bundle_discount_total is not None:
+            self.total -= self.bundle_discount_total
         self.currency = session_currency(request)
         self.save()  # We need an ID before we can add related items.
         for item in request.cart:
@@ -910,6 +915,9 @@ class Cart(models.Model):
                 total += discount.calculate(item.unit_price, currency) * item.quantity
 
         return total
+
+    def calculate_bundle_discount(self):
+        return Decimal("10")
 
     def has_no_stock(self):
         "Return the products of the cart with no stock"
@@ -1141,6 +1149,66 @@ class DiscountCodeUniqueAbstract(models.Model):
     class Meta:
         abstract = True
 
+
+class BundleDiscount(models.Model):
+    title = CharField(max_length=100)
+    active = models.BooleanField(_("Active"))
+    valid_from = models.DateTimeField(_("Valid from"), blank=True, null=True)
+    valid_to = models.DateTimeField(_("Valid to"), blank=True, null=True)
+    quantity = models.IntegerField(_("Bundle quantity"), default=2)
+    fixed_price = fields.MoneyField(_("Fixed price"))
+    products = models.ManyToManyField("Product", blank=True)
+    categories = models.ManyToManyField("Category", blank=True)
+
+    class Meta:
+        verbose_name = _("BundleDiscount")
+        verbose_name_plural = _("BundleDiscounts")
+
+    def __unicode__(self):
+        return self.title
+
+    def save(self, *args, **kwargs):
+        """
+        Apply BundleDiscount field value to products and variations according
+        to the selected categories and products for the sale.
+        """
+        super(BundleDiscount, self).save(*args, **kwargs)
+        self._clear()
+        if self.active:
+            products = self.all_products()
+            variations = ProductVariation.objects.filter(product__in=products)
+            for priced_objects in (products, variations):
+                try:
+                    priced_objects.update(bundle_discount_id=self.id)
+                except (OperationalError, DatabaseError):
+                    for priced_object in priced_objects:
+                        priced_object.bundle_discount_id = self.id
+                        priced_object.save()
+
+    def delete(self, *args, **kwargs):
+        """
+        Clear this BundleDiscount from products when deleting it.
+        """
+        self._clear()
+        super(BundleDiscount, self).delete(*args, **kwargs)
+
+    def _clear(self):
+        """
+        Clears previously applied sale field values from products prior
+        to updating the BundleDiscount, when deactivating it or deleting it.
+        """
+        for priced_model in (Product, ProductVariation):
+            filtered = priced_model.objects.filter(bundle_discount_id=self.id)
+            filtered.update(bundle_discount_id=None)
+
+    def all_products(self):
+        """
+        Return the selected products as well as the products in the
+        selected categories.
+        """
+        filters = [category.filters() for category in self.categories.all()]
+        filters = reduce(ior, filters + [Q(id__in=self.products.only("id"))])
+        return Product.objects.filter(filters).distinct()
 
 
 from countries.models import Country

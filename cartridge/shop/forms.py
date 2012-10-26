@@ -414,6 +414,12 @@ class DiscountForm(forms.ModelForm):
         """
         currency = session_currency(self._request)
         discount = getattr(self, "_discount", None)
+        bundle_discount_total = self._request.cart.calculate_bundle_discount()
+        if bundle_discount_total:
+            self._request.session["bundle_discount_total"] = bundle_discount_total
+        else:
+            self._request.session.pop("bundle_discount_code", None)
+
         if discount is not None:
             total = self._request.cart.calculate_discount(discount, currency)
             if discount.free_shipping:

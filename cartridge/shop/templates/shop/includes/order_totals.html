@@ -14,6 +14,13 @@
 	    </label>{{ discount_total|currency }}
 	</div>
 	{% endif %}
+	{% if bundle_discount_total %}
+	<div>
+	    <label>
+	    {% trans "Bundle Discount" %}:
+	    </label>{{ bundle_discount_total|currency }}
+	</div>
+	{% endif %}
 	{% if shipping_total %}
 	<div>
 	    <label>

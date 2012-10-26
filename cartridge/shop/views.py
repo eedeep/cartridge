@@ -3,6 +3,7 @@ import itertools
 import logging
 from urllib2 import urlopen, URLError
 from decimal import Decimal
+from datetime import datetime
 
 logger = logging.getLogger("cottonon")
 
@@ -18,7 +19,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 from django.core.cache import cache
-from django.db.models import Sum
+from django.db.models import Sum, Q
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -27,7 +28,7 @@ from mezzanine.utils.views import render, set_cookie
 from cartridge.shop import checkout
 from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, ShippingForm
 from cartridge.shop.models import Product, ProductVariation, Order, Cart
-from cartridge.shop.models import DiscountCode
+from cartridge.shop.models import DiscountCode, BundleDiscount
 from cartridge.shop.utils import recalculate_discount, sign
 
 #TODO remove multicurrency imports from cartridge
@@ -127,6 +128,23 @@ def product(request, slug, template="shop/product.html", extends_template="base.
         cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
         context.update(cached_context)
 
+    def get_sale_filters():
+        now = datetime.now()
+        valid_from = Q(valid_from__isnull=True) | Q(valid_from__lte=now)
+        valid_to = Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+        active = Q(active=True)
+        return valid_from & valid_to & active
+
+    if product.bundle_discount_id:
+        try:
+            bundle_discount = BundleDiscount.objects.filter(
+                get_sale_filters()
+            ).get(id=product.bundle_discount_id)
+        except BundleDiscount.DoesNotExist:
+            pass
+        else:
+            context["bundle_title"] = bundle_discount.title
+
     #Get the first promotion for this object
     if Promotion:
         #luxury TODO: print the deal's "post applied" message if cart has met requirements.
@@ -217,6 +235,7 @@ def _discount_data(request, discount_form):
     data = {
        'error_message': ' '.join(list(itertools.chain.from_iterable(discount_form.errors.values()))),
        'discount_total': updated_context['discount_total'],
+       'bundle_discount_total': updated_context['bundle_discount_total'],
        'total_price':  updated_context['order_total'],
        'shipping_total': updated_context['shipping_total'],
     }
@@ -257,6 +276,8 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     cart_formset = CartItemFormSet(instance=request.cart)
     shipping_form = _shipping_form_for_cart(request, currency)
     discount_form = _discount_form_for_cart(request)
+    import ipdb; ipdb.set_trace()
+
 
     valid = False
     if request.method == "POST":
@@ -297,6 +318,7 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
 
     context["extends_template"] = extends_template
     context['CURRENT_REGION'] = getattr(settings, 'CURRENT_REGION', '')
+    context['bundle_discount_total'] = request.session.get('bundle_discount_total', None)
 
     if request.is_ajax():
         return HttpResponse(_discount_data(request, discount_form), "application/javascript")
