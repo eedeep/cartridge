@@ -121,7 +121,13 @@ def _order_email_context(order):
 
     store_config = settings.STORE_CONFIGS[order.currency]
     order_context["tax_type"] = store_config.tax_type
-    order_context["tax_amount"] = order.item_total * store_config.tax_rate
+    # This caters for stores which calculate tax via a tax
+    # handler, like the US store for example
+    if hasattr(order, "tax_total"):
+        order_context["tax_amount"] = order.tax_total
+    else:
+        order_context["tax_amount"] = order.item_total * store_config.tax_rate
+
     for fieldset in ("billing_detail", "shipping_detail"):
         fields = [(f.verbose_name, getattr(order, f.name)) for f in
             order._meta.fields if f.name.startswith(fieldset)]
