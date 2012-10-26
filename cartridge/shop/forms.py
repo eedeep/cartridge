@@ -35,7 +35,7 @@ from cartridge.taggit.models import Tag
 from countries.models import Country
 
 from multicurrency.templatetags.multicurrency_tags import local_currency
-from multicurrency.utils import session_currency, \
+from multicurrency.utils import session_currency, is_default_shipping_option, \
     displayable_local_freight_types, get_freight_type_for_id
 
 
@@ -362,10 +362,36 @@ class DiscountForm(forms.ModelForm):
                     cart=cart,
                     currency=currency
                 )
-                #don't allow free shipping discounts when rest-of-world shipping option selected
-                if self._request.session.get("shipping_type", None) == settings.REST_OF_WORLD and discount.free_shipping:
-                    error = _("Free shipping not valid with that shipping option.")
-                    raise forms.ValidationError(error)
+
+                # Business rule: only allow free shipping for the default freight type
+                if discount.free_shipping:
+                    # The shipping code can come from a number of places depending
+                    # on what the user is doing....try to get it first from the 
+                    # POST, then from the session (in this case they may have previously
+                    # validated a discount code and thus set their shipping code to 
+                    # FREE_SHIPPING, if that's the case then we want to get the shipping
+                    # code from the 'id' field [ie, the dropdown] of the shipping form 
+                    # and validate that against the discount code, since what is in the 
+                    # dropdown represents their current shipping choice). If it's not in 
+                    # the POST or the session, try to get it from the GET (in this case
+                    # something ajaxy is happening, probably they have changed the 
+                    # dropdown box). In that last case, even if the shipping type is 
+                    # invalid for the discount, the user won't actually see anything
+                    # as the ajax isn't geared up to give that feedback properly at this 
+                    # stage. At any rate, the form will invalidate when the user tries to 
+                    # move the next stage of the checkout, so that will suffice for now.
+                    shipping_option_id = self._request.POST.get('shipping_option', None)
+                    if not shipping_option_id:
+                        shipping_option_id = self._request.session.get('shipping_type', None)
+                        if shipping_option_id == settings.FREE_SHIPPING:
+                            shipping_option_id = self._request.POST.get('id', None)
+                        if not shipping_option_id:
+                            shipping_option_id = self._request.GET.get('id', None)
+                    if shipping_option_id:
+                        if not is_default_shipping_option(currency, shipping_option_id):
+                            error = _("Free shipping not valid with that shipping option.")
+                            raise forms.ValidationError(error)
+
                 self._discount = discount
             except DiscountCode.DoesNotExist:
                 set_discount(self._request, None) #remove discount
