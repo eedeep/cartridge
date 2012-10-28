@@ -2,6 +2,7 @@ import hashlib
 import itertools
 import logging
 from urllib2 import urlopen, URLError
+from decimal import Decimal
 
 logger = logging.getLogger("cottonon")
 
@@ -193,6 +194,15 @@ def _discount_data(request, discount_form):
     displayed to the user.
     """
     updated_context = _order_totals({'request': request})
+
+    # If the user goes through to the pay & confirm page and tax
+    # gets added and then they come back to the cart page and enter
+    # another discount code, we need to strip the tax out of the
+    # session (if it exists) and subtract that amount from the order total
+    # in the context, otherwise the tax amount will show up in the total
+    updated_context['order_total'] = Decimal(updated_context['order_total']) - \
+        request.session.pop('tax_total', 0)
+
     for key, val in updated_context.items():
         if '_total' in key:
             updated_context[key] = formatted_price(request, val)
