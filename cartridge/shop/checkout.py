@@ -4,6 +4,7 @@ Checkout process utilities.
 
 from decimal import Decimal
 
+from django.contrib.sites.models import Site
 from django.utils.translation import ugettext as _
 from django.template.loader import get_template, TemplateDoesNotExist
 
@@ -74,8 +75,8 @@ def initial_order_data(request):
     if "order" in request.session:
         # This seems somewhat arbitrary as a place to put this but
         # we want to clear any previously calculated tax from the session
-        # if the user is going back to the billing/shipping page to edit 
-        # their details prior to completeing their checkout. Reason for this 
+        # if the user is going back to the billing/shipping page to edit
+        # their details prior to completeing their checkout. Reason for this
         # is largely due to US tax calculations being
         # dependent on the shipping address specified by the customer
         request.session.pop('tax_total', None)
@@ -121,6 +122,7 @@ def _order_email_context(order):
 
     store_config = settings.STORE_CONFIGS[order.currency]
     order_context["tax_type"] = store_config.tax_type
+    order_context['site_domain'] = Site.objects.get(id=settings.SITE_ID).domain
     # This caters for stores which calculate tax via a tax
     # handler, like the US store for example
     if hasattr(order, "tax_total"):
