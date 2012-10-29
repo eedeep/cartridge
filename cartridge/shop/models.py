@@ -898,16 +898,21 @@ class Cart(models.Model):
         """
         # Discount applies to cart total if not product specific.
         products = discount.all_products()
-        if products.count() == 0:
-            return discount.calculate(self.total_price(), currency)
+        specific_products = len(products[:1]) > 0
         total = Decimal("0")
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
         lookup = {"product__in": products, "sku__in": self.skus()}
         discount_variations = ProductVariation.objects.filter(**lookup)
         discount_skus = discount_variations.values_list("sku", flat=True)
+        from multicurrency.models import MultiCurrencyProductVariation
         for item in self:
-            if item.sku in discount_skus:
+            mc_variation = MultiCurrencyProductVariation.objects.get(sku=item.sku)
+            if (mc_variation.on_sale(currency) or
+                mc_variation.is_marked_down(currency)):
+                continue
+            if ((specific_products and item.sku in discount_skus) or
+                not specific_products):
                 total += discount.calculate(item.unit_price, currency) * item.quantity
         return total
 
