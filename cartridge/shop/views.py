@@ -276,8 +276,6 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     cart_formset = CartItemFormSet(instance=request.cart)
     shipping_form = _shipping_form_for_cart(request, currency)
     discount_form = _discount_form_for_cart(request)
-    import ipdb; ipdb.set_trace()
-
 
     valid = False
     if request.method == "POST":
