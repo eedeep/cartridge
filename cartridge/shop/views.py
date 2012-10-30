@@ -306,7 +306,10 @@ def finalise_order(transaction_id, request, order, remember):
     order.complete(request)
     # Set the cookie for remembering address details
     # if the "remember" checkbox was checked.
-    response = redirect("shop_complete")
+    if request.get_full_path().startswith('/cobycottonon/'):
+        response = redirect("coexclusives_shop_complete")
+    else:
+        response = redirect("shop_complete")
     if remember:
         remembered = "%s:%s" % (sign(order.key), order.key)
         set_cookie(response, "remember", remembered,
