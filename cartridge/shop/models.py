@@ -880,9 +880,6 @@ class Cart(models.Model):
         # Discount applies to cart total if not product specific.
         discount_total = Decimal("0")
         bundle_discount_total = Decimal("0")
-
-        # TODO discount deduct...
-
         if discount:
             products = discount.all_products()
             specific_products = len(products[:1]) > 0
@@ -908,16 +905,20 @@ class Cart(models.Model):
                 if mc_variation.bundle_discount_id
         )
 
-        # TODO: return the relevant fixed price for the currency
         # TODO: only return active bundles.
-        # TODO: Drive the max discount from the model
         active_bundles = BundleDiscount.objects.filter(
             id__in=bundle_ids
-        ).values_list('id', 'quantity', 'fixed_price')
+        ).values_list(
+            'id',
+            'quantity',
+            '_bundled_unit_price_{}'.format(currency.lower()),
+            "maximise_discount",
+        )
         bundle_collection = {
-            id_: (quantity, fixed_price, True, {})
-            for id_, quantity, fixed_price in active_bundles
+            id_: (quantity, bundle_price, max_discount, {})
+            for id_, quantity, bundle_price, max_discount in active_bundles
         }
+        bundle_collection[None] = (0, 0, 0, {})
 
         # Collect all the sku which we could bundle and so we can aggregate
         # their quantities. Keep track of the discount code and bundle
@@ -952,7 +953,7 @@ class Cart(models.Model):
                 item.quantity,
             ))
 
-        # Compute the maximise (or minimum) discount we can give
+        # Compute the maximise (or minimise) discount we can give
         # the cart with the cart we have. Note: Bundles are 'greedy'
         # so if we have enough items to bundle we must do so.
         for (bundle_quantity, _bundle_price, max_discount,
@@ -1218,9 +1219,10 @@ class BundleDiscount(models.Model):
     valid_from = models.DateTimeField(_("Valid from"), blank=True, null=True)
     valid_to = models.DateTimeField(_("Valid to"), blank=True, null=True)
     quantity = models.IntegerField(_("Bundle quantity"), default=2)
-    fixed_price = fields.MoneyField(_("Fixed price"))
+    bundled_unit_price = fields.MoneyField(_("Bundled unit price"))
     products = models.ManyToManyField("Product", blank=True)
     categories = models.ManyToManyField("Category", blank=True)
+    maximise_discount = models.BooleanField('Maximise discount')
 
     class Meta:
         verbose_name = _("BundleDiscount")

@@ -249,16 +249,25 @@ class DiscountCodeAdmin(admin.ModelAdmin):
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),
     )
 
+if hasattr(settings, 'STORE_CONFIGS'):
+    BUNDLE_PRICES = [
+        '_bundled_unit_price_{}'.format(currency.lower())
+        for currency in settings.STORE_CONFIGS
+    ]
+else:
+    BUNDLE_PRICES = ['bundled_unit_price']
+
 
 class BundleDiscountAdmin(admin.ModelAdmin):
-    list_display = ("title", "active", "quantity", "fixed_price",
-                    "valid_from", "valid_to")
+    list_display = ["title", "active", "quantity"] + BUNDLE_PRICES + \
+                    ["maximise_discount", "valid_from", "valid_to"]
     list_editable = ("active", "valid_from", "valid_to")
     model = BundleDiscount
     filter_horizontal = ("categories", "products")
     formfield_overrides = {MoneyField: {"widget": MoneyWidget}}
     fieldsets = (
-        (None, {"fields": ("title", "active", "quantity", "fixed_price")}),
+        (None, {"fields": ["title", "active", "quantity"] + BUNDLE_PRICES + \
+                           ["maximise_discount"]}),
         (_("Apply to product and/or products in categories"),
             {"fields": ("products", "categories")}),
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),

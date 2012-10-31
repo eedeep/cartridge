@@ -3,21 +3,27 @@ import datetime
 from south.db import db
 from south.v2 import SchemaMigration
 from django.db import models
-
+from django.conf import settings
 
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
-        # Adding model 'BundleDiscount'
-        db.create_table('shop_bundlediscount', (
+        columns = (
             ('id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
             ('title', self.gf('django.db.models.fields.CharField')(max_length=100)),
             ('active', self.gf('django.db.models.fields.BooleanField')(default=False)),
             ('valid_from', self.gf('django.db.models.fields.DateTimeField')(null=True, blank=True)),
             ('valid_to', self.gf('django.db.models.fields.DateTimeField')(null=True, blank=True)),
             ('quantity', self.gf('django.db.models.fields.IntegerField')(default=2)),
-            ('fixed_price', self.gf('cartridge.shop.fields.MoneyField')(null=True, max_digits=10, decimal_places=2, blank=True)),
-        ))
+            ('maximise_discount', self.gf('django.db.models.fields.BooleanField')(default=False)),
+            ('bundled_unit_price', self.gf('cartridge.shop.fields.MoneyField')(null=True, max_digits=10, decimal_places=2, blank=True))
+        )
+        for currency in settings.STORE_CONFIGS:
+            columns += (
+                ('_bundled_unit_price_{}'.format(currency.lower()), self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True)),
+            )
+        # Adding model 'BundleDiscount'
+        db.create_table('shop_bundlediscount', columns)
         db.send_create_signal('shop', ['BundleDiscount'])
 
         # Adding M2M table for field products on 'BundleDiscount'
@@ -133,10 +139,14 @@ class Migration(SchemaMigration):
         },
         'shop.bundlediscount': {
             'Meta': {'object_name': 'BundleDiscount'},
+            '_bundled_unit_price_hkd': ('django.db.models.fields.DecimalField', [], {'null': 'True', 'max_digits': '12', 'decimal_places': '2', 'blank': 'True'}),
+            '_bundled_unit_price_myr': ('django.db.models.fields.DecimalField', [], {'null': 'True', 'max_digits': '12', 'decimal_places': '2', 'blank': 'True'}),
+            '_bundled_unit_price_sgd': ('django.db.models.fields.DecimalField', [], {'null': 'True', 'max_digits': '12', 'decimal_places': '2', 'blank': 'True'}),
             'active': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
+            'bundled_unit_price': ('cartridge.shop.fields.MoneyField', [], {'null': 'True', 'max_digits': '10', 'decimal_places': '2', 'blank': 'True'}),
             'categories': ('django.db.models.fields.related.ManyToManyField', [], {'to': "orm['shop.Category']", 'symmetrical': 'False', 'blank': 'True'}),
-            'fixed_price': ('cartridge.shop.fields.MoneyField', [], {'null': 'True', 'max_digits': '10', 'decimal_places': '2', 'blank': 'True'}),
             'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'maximise_discount': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'products': ('django.db.models.fields.related.ManyToManyField', [], {'to': "orm['shop.Product']", 'symmetrical': 'False', 'blank': 'True'}),
             'quantity': ('django.db.models.fields.IntegerField', [], {'default': '2'}),
             'title': ('django.db.models.fields.CharField', [], {'max_length': '100'}),
