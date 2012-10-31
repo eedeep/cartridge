@@ -327,14 +327,15 @@ class ShippingForm(forms.Form):
             )
             set_shipping(self._request, shipping_option, shipping_cost)
             if discount:
-                total = self._request.cart.calculate_discount(
+                discount_total, bundle_discount_total = self._request.cart.calculate_discount(
                     discount,
                     self._currency
                 )
                 if discount.free_shipping:
                     set_shipping(self._request, settings.FREE_SHIPPING, 0)
                 self._request.session["free_shipping"] = discount.free_shipping
-                self._request.session["discount_total"] = total
+                self._request.session["discount_total"] = discount_total
+                self._request.session["bundle_discount_total"] = bundle_discount_total
 
 
 class DiscountForm(forms.ModelForm):
@@ -414,24 +415,29 @@ class DiscountForm(forms.ModelForm):
         """
         currency = session_currency(self._request)
         discount = getattr(self, "_discount", None)
-        bundle_discount_total = self._request.cart.calculate_bundle_discount()
+        discount_total, bundle_discount_total = self._request.cart.calculate_discount(
+            discount,
+            currency
+        )
         if bundle_discount_total:
             self._request.session["bundle_discount_total"] = bundle_discount_total
         else:
-            self._request.session.pop("bundle_discount_code", None)
+            self._request.session.pop("bundle_discount_total", None)
+
+        if discount_total:
+            self._request.session["discount_total"] = discount_total
+        else:
+            self._request.session.pop("discount_total", None)
 
         if discount is not None:
-            total = self._request.cart.calculate_discount(discount, currency)
             if discount.free_shipping:
                 set_shipping(self._request, settings.FREE_SHIPPING, 0)
             self._request.session["free_shipping"] = discount.free_shipping
             self._request.session["discount_code"] = discount.code
             if self._request.session.has_key('order'):
                 self._request.session['order']['discount_code'] = discount.code
-            self._request.session["discount_total"] = total
         else:
             self._request.session.pop("discount_code", None)
-            self._request.session.pop("discount_total", None)
             self._request.session.pop("free_shipping", None)
             if self._request.session.has_key('order'):
                 self._request.session['order'].pop('discount_code', None)

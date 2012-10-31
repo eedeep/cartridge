@@ -878,46 +878,108 @@ class Cart(models.Model):
         might have the discount, others might not.
         """
         # Discount applies to cart total if not product specific.
-        products = discount.all_products()
-        specific_products = len(products[:1]) > 0
-        total = Decimal("0")
+        discount_total = Decimal("0")
+        bundle_discount_total = Decimal("0")
+
+        # TODO discount deduct...
+
+        if discount:
+            products = discount.all_products()
+            specific_products = len(products[:1]) > 0
+            lookup = {"product__in": products, "sku__in": self.skus()}
+            discount_variations = ProductVariation.objects.filter(**lookup)
+            discount_skus = discount_variations.values_list("sku", flat=True)
+            discount_deduct = getattr(discount, "_discount_deduct_{}".format(
+                    currency.lower()))
+            min_purchase = getattr(discount, "_min_purchase_{}".format(
+                    currency.lower()))
+        else:
+            discount_deduct = False
+            min_purchase = False
+            specific_products = True
+            discount_skus = []
+
+        from multicurrency.models import MultiCurrencyProductVariation
+        mc_variations = list(MultiCurrencyProductVariation.objects.filter(
+            sku__in=self.skus(),
+        ))
+        bundle_ids = set(mc_variation.bundle_discount_id
+                for mc_variation in mc_variations
+                if mc_variation.bundle_discount_id
+        )
+
+        # TODO: return the relevant fixed price for the currency
+        # TODO: only return active bundles.
+        # TODO: Drive the max discount from the model
+        active_bundles = BundleDiscount.objects.filter(
+            id__in=bundle_ids
+        ).values_list('id', 'quantity', 'fixed_price')
+        bundle_collection = {
+            id_: (quantity, fixed_price, True, {})
+            for id_, quantity, fixed_price in active_bundles
+        }
+
+        # Collect all the sku which we could bundle and so we can aggregate
+        # their quantities. Keep track of the discount code and bundle
+        # discount which could be applied so we can try and maximise (or
+        # minimise) the total discount.
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
-        lookup = {"product__in": products, "sku__in": self.skus()}
-        discount_variations = ProductVariation.objects.filter(**lookup)
-        discount_skus = discount_variations.values_list("sku", flat=True)
-        from multicurrency.models import MultiCurrencyProductVariation
-        discount_deduct = getattr(discount, "_discount_deduct_{}".format(
-                currency.lower()))
-        discount_exact = getattr(discount, "_discount_exact_{}".format(
-                currency.lower()))
-        min_purchase = getattr(discount, "_min_purchase_{}".format(
-                currency.lower()))
         for item in self:
-            if not ((specific_products and item.sku in discount_skus) or
-                    not specific_products):
-                continue
-            if discount_exact is not None:
-                total += discount_exact
-                if self.total_price() < total:
-                    total = self.total_price()
-                break
-            mc_variation = MultiCurrencyProductVariation.objects.get(sku=item.sku)
+            sku = item.sku
+            mc_variation = max(mc_variations, key=lambda x: sku == x.sku)
             if (mc_variation.on_sale(currency) or
                 mc_variation.is_marked_down(currency)):
                 continue
 
-            if discount_deduct is not None:
-                if min_purchase and self.total_price > min_purchase:
-                    total += discount_deduct
-                    break
-            else:
-                total += discount.calculate(item.unit_price, currency) * item.quantity
+            unit_price = item.unit_price
+            code_discount = Decimal('0')
+            if ((specific_products and sku in discount_skus) or
+                not specific_products):
+                    code_discount = discount.calculate(
+                        unit_price,
+                        currency
+                    )
 
-        return total
+            (_bundle_quantity, bundle_price, _max_discount, bundle_skus) = \
+              bundle_collection[mc_variation.bundle_discount_id]
 
-    def calculate_bundle_discount(self):
-        return Decimal("10")
+            bundle_discount = unit_price - bundle_price
+            sku_prefix = mc_variation.option1.split('-')[0]
+            bundle_skus.setdefault(sku_prefix, []).append((
+                code_discount,
+                bundle_discount,
+                item.quantity,
+            ))
+
+        # Compute the maximise (or minimum) discount we can give
+        # the cart with the cart we have. Note: Bundles are 'greedy'
+        # so if we have enough items to bundle we must do so.
+        for (bundle_quantity, _bundle_price, max_discount,
+             bundle_skus) in bundle_collection.values():
+            for bundle_sku in bundle_skus.values():
+                # Try and (by default) maximise the discount
+                # the customer will receive.
+                bundle_sku.sort(
+                    key=lambda x: x[1] - x[0],
+                    reverse=max_discount
+                )
+                total_quantity = sum(i[2] for i in bundle_sku)
+                bundle_remainder = total_quantity
+                if bundle_quantity:
+                    bundle_remainder %= bundle_quantity
+
+                for code_discount, bundle_discount, quantity in bundle_sku:
+                    to_discount = min([
+                        quantity,
+                        bundle_remainder,
+                    ])
+                    to_bundle = quantity - to_discount
+                    discount_total += code_discount * to_discount
+                    bundle_discount_total += bundle_discount * to_bundle
+                    bundle_remainder -= to_discount
+
+        return discount_total, bundle_discount_total
 
     def has_no_stock(self):
         "Return the products of the cart with no stock"
@@ -1172,6 +1234,8 @@ class BundleDiscount(models.Model):
         Apply BundleDiscount field value to products and variations according
         to the selected categories and products for the sale.
         """
+        # TODO: Seem to have to save the bundle twice before it
+        # will work which is rather shit me thinks.
         super(BundleDiscount, self).save(*args, **kwargs)
         self._clear()
         if self.active:

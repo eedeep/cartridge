@@ -72,6 +72,7 @@ def recalculate_discount(request):
     else:
         try:
             del request.session["discount_total"]
+            del request.session["bundle_discount_total"]
         except KeyError:
             pass
 
