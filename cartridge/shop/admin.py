@@ -249,13 +249,15 @@ class DiscountCodeAdmin(admin.ModelAdmin):
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),
     )
 
+BUNDLE_PRICES = []
 if hasattr(settings, 'STORE_CONFIGS'):
-    BUNDLE_PRICES = [
-        '_bundled_unit_price_{}'.format(currency.lower())
-        for currency in settings.STORE_CONFIGS
-    ]
+    for currency in settings.STORE_CONFIGS:
+        BUNDLE_PRICES += [
+            '_title_{}'.format(currency.lower()),
+            '_bundled_unit_price_{}'.format(currency.lower()),
+        ]
 else:
-    BUNDLE_PRICES = ['bundled_unit_price']
+    BUNDLE_PRICES.append('bundled_unit_price')
 
 
 class BundleDiscountAdmin(admin.ModelAdmin):

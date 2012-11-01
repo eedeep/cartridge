@@ -136,7 +136,10 @@ def product(request, slug, template="shop/product.html", extends_template="base.
         except BundleDiscount.DoesNotExist:
             pass
         else:
-            context["bundle_title"] = bundle_discount.title
+            context["bundle_title"] = getattr(
+                bundle_discount,
+                "_title_{}".format(currency.lower())
+            )
 
     #Get the first promotion for this object
     if Promotion:
