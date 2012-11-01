@@ -128,18 +128,11 @@ def product(request, slug, template="shop/product.html", extends_template="base.
         cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
         context.update(cached_context)
 
-    def get_sale_filters():
-        now = datetime.now()
-        valid_from = Q(valid_from__isnull=True) | Q(valid_from__lte=now)
-        valid_to = Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-        active = Q(active=True)
-        return valid_from & valid_to & active
-
     if product.bundle_discount_id:
         try:
-            bundle_discount = BundleDiscount.objects.filter(
-                get_sale_filters()
-            ).get(id=product.bundle_discount_id)
+            bundle_discount = BundleDiscount.objects.active().get(
+                id=product.bundle_discount_id
+            )
         except BundleDiscount.DoesNotExist:
             pass
         else:

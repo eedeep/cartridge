@@ -905,15 +905,14 @@ class Cart(models.Model):
                 if mc_variation.bundle_discount_id
         )
 
-        # TODO: only return active bundles.
-        active_bundles = BundleDiscount.objects.filter(
+        active_bundles = BundleDiscount.objects.active().filter(
             id__in=bundle_ids
         ).values_list(
             'id',
             'quantity',
             '_bundled_unit_price_{}'.format(currency.lower()),
             "maximise_discount",
-        )
+        ).distinct()
         bundle_collection = {
             id_: (quantity, bundle_price, max_discount, {})
             for id_, quantity, bundle_price, max_discount in active_bundles
@@ -1096,6 +1095,8 @@ class Discount(models.Model):
     valid_from = models.DateTimeField(_("Valid from"), blank=True, null=True)
     valid_to = models.DateTimeField(_("Valid to"), blank=True, null=True)
 
+    objects = managers.DiscountManager()
+
     class Meta:
         abstract = True
 
@@ -1225,6 +1226,8 @@ class BundleDiscount(models.Model):
     products = models.ManyToManyField("Product", blank=True)
     categories = models.ManyToManyField("Category", blank=True)
     maximise_discount = models.BooleanField('Maximise discount')
+
+    objects = managers.DiscountManager()
 
     class Meta:
         verbose_name = _("BundleDiscount")

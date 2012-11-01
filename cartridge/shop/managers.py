@@ -208,9 +208,9 @@ class ProductActionManager(Manager):
         self._action_for_field("total_purchase")
 
 
-class DiscountCodeManager(Manager):
+class DiscountManager(Manager):
 
-    def active(self, *args, **kwargs):
+    def active(self):
         """
         Items flagged as active and in valid date range if date(s) are
         specified.
@@ -219,6 +219,9 @@ class DiscountCodeManager(Manager):
         valid_from = Q(valid_from__isnull=True) | Q(valid_from__lte=now)
         valid_to = Q(valid_to__isnull=True) | Q(valid_to__gte=now)
         return self.filter(valid_from, valid_to, active=True)
+
+
+class DiscountCodeManager(DiscountManager):
 
     def get_valid(self, code, cart, currency):
         """
@@ -263,6 +266,7 @@ class DiscountCodeManager(Manager):
         if valid_products.count() == 0 and valid_categories.count() == 0:
             raise self.model.DoesNotExist
         return discount
+
 
 class CategoryPageImageManager(Manager):
     """
