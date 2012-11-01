@@ -945,7 +945,9 @@ class Cart(models.Model):
             (_bundle_quantity, bundle_price, _max_discount, bundle_skus) = \
               bundle_collection[mc_variation.bundle_discount_id]
 
-            bundle_discount = unit_price - bundle_price
+            bundle_discount = Decimal('0')
+            if bundle_price:
+                bundle_discount = unit_price - bundle_price
             sku_prefix = mc_variation.option1.split('-')[0]
             bundle_skus.setdefault(sku_prefix, []).append((
                 code_discount,
