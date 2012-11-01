@@ -1236,14 +1236,11 @@ class BundleDiscount(models.Model):
     def __unicode__(self):
         return self.title
 
-    def save(self, *args, **kwargs):
+    def apply(self):
         """
         Apply BundleDiscount field value to products and variations according
         to the selected categories and products for the sale.
         """
-        # TODO: Seem to have to save the bundle twice before it
-        # will work which is rather shit me thinks.
-        super(BundleDiscount, self).save(*args, **kwargs)
         self._clear()
         if self.active:
             products = self.all_products()

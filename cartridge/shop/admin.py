@@ -273,6 +273,16 @@ class BundleDiscountAdmin(admin.ModelAdmin):
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),
     )
 
+    def save_related(self, request, form, formsets, change):
+        """
+        By applying the bundle discount here, it means that the many to many
+        fields for products and categories will have been properly saved, which
+        is what we need.
+        """
+        super(BundleDiscountAdmin, self).save_related(request, form, formsets,
+                                                      change)
+        form.instance.apply()
+
 
 admin.site.register(Category, CategoryAdmin)
 admin.site.register(Product, ProductAdmin)
