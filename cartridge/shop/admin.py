@@ -43,8 +43,9 @@ class CategoryAdmin(PageAdmin):
         """
         Store the product object for creating variations in save_formset.
         """
-        obj.products.clear()
-        obj.products.add(*form.cleaned_data['products'])
+        if obj.id:
+            obj.products.clear()
+            obj.products.add(*form.cleaned_data['products'])
         super(CategoryAdmin, self).save_model(request, obj, form, change)
 
 
