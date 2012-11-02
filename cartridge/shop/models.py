@@ -4,6 +4,7 @@ import md5
 import re
 from datetime import datetime
 from decimal import Decimal, ROUND_UP
+import itertools
 from operator import iand, ior
 from exceptions import NotImplementedError
 
@@ -48,6 +49,17 @@ SESSION_SHIPPINGTYPE = "shipping_type"
 SESSION_SHIPPINGTOTAL = "shipping_total"
 SESSION_DISCOUNTCODE = "discount_code"
 SESSION_DISCOUNTTOTAL = "discount_total"
+
+def iter_bundle(bundle_items, bundle_size):
+    """Take a list and pick of item in bundles
+    of bundle_sizes. The last bundle will
+    contains the remainders.
+    """
+    for idx, bundled in itertools.groupby(
+            enumerate(bundle_items),
+            lambda x: x[0] // bundle_size):
+        yield zip(*bundled)[1]
+
 
 
 class Category(Page, RichText):
@@ -911,13 +923,7 @@ class Cart(models.Model):
             'id',
             'quantity',
             '_bundled_unit_price_{}'.format(currency.lower()),
-            "maximise_discount",
         ).distinct()
-        bundle_collection = {
-            id_: (quantity, bundle_price, max_discount, {})
-            for id_, quantity, bundle_price, max_discount in active_bundles
-        }
-        bundle_collection[None] = (0, 0, 0, {})
 
         # Collect all the sku which we could bundle and so we can aggregate
         # their quantities. Keep track of the discount code and bundle
@@ -925,6 +931,12 @@ class Cart(models.Model):
         # minimise) the total discount.
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
+        bundle_collection = {
+            id_: (quantity, bundle_unit_price, {})
+            for id_, quantity, bundle_unit_price in active_bundles
+        }
+        fall_back_collection = (0, 0, {})
+        bundle_collection[None] = fall_back_collection
         for item in self:
             sku = item.sku
             mc_variation = max(mc_variations, key=lambda x: sku == x.sku)
@@ -933,53 +945,53 @@ class Cart(models.Model):
                 continue
 
             unit_price = item.unit_price
-            code_discount = Decimal('0')
+            discount_price = unit_price
             if ((specific_products and sku in discount_skus) or
                 not specific_products):
-                    code_discount = discount.calculate(
-                        unit_price,
-                        currency
-                    )
-
-            (bundle_quantity, bundle_price, _max_discount, bundle_skus) = \
-              bundle_collection[mc_variation.bundle_discount_id]
-
-            bundle_discount = Decimal('0')
-            if bundle_price and bundle_quantity:
-                bundle_discount = unit_price - bundle_price / bundle_quantity
-            sku_prefix = mc_variation.option1.split('-')[0]
-            bundle_skus.setdefault(sku_prefix, []).append((
-                code_discount,
-                bundle_discount,
-                item.quantity,
-            ))
-
-        # Compute the maximise (or minimise) discount we can give
-        # the cart with the cart we have. Note: Bundles are 'greedy'
-        # so if we have enough items to bundle we must do so.
-        for (bundle_quantity, _bundle_price, max_discount,
-             bundle_skus) in bundle_collection.values():
-            for bundle_sku in bundle_skus.values():
-                # Try and (by default) maximise the discount
-                # the customer will receive.
-                bundle_sku.sort(
-                    key=lambda x: x[1] - x[0],
-                    reverse=max_discount
+                discount_price -= discount.calculate(
+                    unit_price,
+                    currency
                 )
-                total_quantity = sum(i[2] for i in bundle_sku)
-                bundle_remainder = total_quantity
-                if bundle_quantity:
-                    bundle_remainder %= bundle_quantity
+            sku_dict = bundle_collection.get(
+                  mc_variation.bundle_discount_id,
+                  fall_back_collection,
+            )[2]
 
-                for code_discount, bundle_discount, quantity in bundle_sku:
-                    to_discount = min([
-                        quantity,
-                        bundle_remainder,
-                    ])
-                    to_bundle = quantity - to_discount
-                    discount_total += code_discount * to_discount
-                    bundle_discount_total += bundle_discount * to_bundle
-                    bundle_remainder -= to_discount
+            sku_prefix = mc_variation.option1.split('-')[0]
+            sku_dict.setdefault(sku_prefix, []).extend(
+                [(unit_price, discount_price)] * item.quantity
+            )
+
+        # Bundle things up as much as we can. Note: Just
+        # because we could bundle something doesn't mean
+        # we should. It possible that it's cheaper for the
+        # customer not bundle or use a discount code instead.
+        for quantity, bundle_price, sku_dict in \
+          bundle_collection.values():
+
+            if not quantity or not bundle_price:
+                # Filter out out fall_back_collection and
+                # any other bundles that have invalid values.
+                continue
+
+            for bundle_skus in sku_dict.values():
+                bundle_skus.sort(key=lambda x: x[1], reverse=True)
+                potential_bundles = iter_bundle(
+                    bundle_skus,
+                    quantity,
+                )
+                # Try to bundle keep bundling items for as long
+                # as it is reducing the over price.
+                keep_bundling = True
+                for potential_bundle in potential_bundles:
+                    normal_price = sum(zip(*potential_bundle)[0])
+                    discounted_price = sum(zip(*potential_bundle)[1])
+                    keep_bundling &= discounted_price > bundle_price
+                    keep_bundling &= len(potential_bundle) == quantity
+                    if keep_bundling:
+                        bundle_discount_total += normal_price - bundle_price
+                    else:
+                        discount_total += normal_price - discounted_price
 
         return discount_total, bundle_discount_total
 
