@@ -12,6 +12,7 @@ import logging
 logger = logging.getLogger("cottonon")
 
 class CartManager(Manager):
+    remove_old_carts = True
 
     def from_request(self, request):
         """
@@ -22,17 +23,31 @@ class CartManager(Manager):
         if hasattr(request, 'cart'):
             return request.cart
         cart_id = request.session.get("cart", None)
-        if cart_id:
-            try:
-                cart = self.get(id=cart_id)
-            except self.model.DoesNotExist:
-                cart = self.create()
-                request.session["cart"] = cart.id
-            else:
-                cart.timestamp_save_only = False
-        else:
+        if not cart_id:
             from cartridge.shop.utils import EmptyCart
-            cart = EmptyCart(request)
+            return EmptyCart(request)
+
+        renew_cart = False
+        if settings.SHOP_CART_STOCK_LEVEL:
+            expiration = settings.SHOP_CART_EXPIRY_MINUTES
+            if self.remove_old_carts:
+                self.filter(
+                    last_updated__lt=datetime.now() - timedelta(minutes=expiration)
+                    ).delete()
+                self.remove_old_carts = False
+        try:
+            cart = self.get(id=cart_id)
+            if settings.SHOP_CART_STOCK_LEVEL:
+                if cart.last_updated < datetime.now() - timedelta(minutes=expiration):
+                    cart.delete()
+                    self.get(id=0)
+                else:
+                    cart.save()
+        except self.model.DoesNotExist:
+            cart = self.create()
+            request.session["cart"] = cart.id
+        else:
+            cart.timestamp_save_only = False
         return cart
 
 
