@@ -1,6 +1,7 @@
 
 import hmac
 from locale import setlocale, LC_MONETARY
+from datetime import datetime
 try:
     from hashlib import sha512 as digest
 except ImportError:
@@ -37,6 +38,7 @@ Store the request so we can add the real cart ID to the
 session if any items get added.
 """
         self._request = request
+        self.last_updated = datetime.now()
 
     def add_item(self, *args, **kwargs):
         """
