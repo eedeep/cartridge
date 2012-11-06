@@ -23,8 +23,9 @@ def absolute_url(context, value):
 @register.simple_tag(takes_context=True)
 def absolute_media_url(context, value):
     """ Insert the MEDIA_URL into full path """
-    url = absolute_url(context, settings.MEDIA_URL+value)
-    return url
+    if value is not None:
+        return absolute_url(context, settings.MEDIA_URL+value)
+    return absolute_url(context, '')
 
 @register.filter
 def currency(value):
