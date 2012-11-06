@@ -386,15 +386,14 @@ class DiscountForm(forms.ModelForm):
                         if shipping_option_id == settings.FREE_SHIPPING:
                             shipping_option_id = self._request.POST.get('id', None)
                         if not shipping_option_id:
-                            try:
-                                int(self._request.GET.get('id', None))
-                            except ValueError:
-                                shipping_option_id = self._request.GET.get('id', None)
+                            shipping_option_id = self._request.GET.get('id', None)
                     if shipping_option_id:
-                        if not is_default_shipping_option(currency, shipping_option_id):
-                            error = _("Free shipping not valid with that shipping option.")
-                            raise forms.ValidationError(error)
-
+                        try:
+                            if not is_default_shipping_option(currency, shipping_option_id):
+                                error = _("Free shipping not valid with that shipping option.")
+                                raise forms.ValidationError(error)
+                        except KeyError:
+                            pass
                 self._discount = discount
             except DiscountCode.DoesNotExist:
                 set_discount(self._request, None) #remove discount
