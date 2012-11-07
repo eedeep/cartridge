@@ -113,6 +113,21 @@ def product(request, slug, template="shop/product.html", extends_template="base.
         "add_product_form": add_product_form
         }
 
+    if product.bundle_discount_id:
+        try:
+            bundle_discount = BundleDiscount.objects.active().get(
+                id=product.bundle_discount_id
+            )
+        except BundleDiscount.DoesNotExist:
+            pass
+        else:
+            if not product.on_sale(currency) and \
+              not product.is_marked_down(currency):
+                context["bundle_title"] = getattr(
+                    bundle_discount,
+                    "_title_{}".format(currency.lower())
+                )
+
     cache_key = generate_cache_key(request)
     cached_data = cache.get(cache_key, None)
     if cached_data and 'invalidate-cache' not in request.GET:
@@ -127,19 +142,6 @@ def product(request, slug, template="shop/product.html", extends_template="base.
             is_marked_down=variation.is_marked_down(currency))
         cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
         context.update(cached_context)
-
-    if product.bundle_discount_id:
-        try:
-            bundle_discount = BundleDiscount.objects.active().get(
-                id=product.bundle_discount_id
-            )
-        except BundleDiscount.DoesNotExist:
-            pass
-        else:
-            context["bundle_title"] = getattr(
-                bundle_discount,
-                "_title_{}".format(currency.lower())
-            )
 
     #Get the first promotion for this object
     if Promotion:
