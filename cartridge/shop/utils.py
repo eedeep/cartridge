@@ -26,12 +26,14 @@ request.
     upsell_products = lambda *a, **k: []
     total_quantity = lambda *a, **k: 0
     total_price = lambda *a, **k: 0
-    calculate_discount = lambda *a, **k: 0
+    calculate_discount = lambda *a, **k: (0, 0)
     has_no_stock = lambda *a, **k: []
     has_items = lambda *a, **k: False
     __int__ = lambda *a, **k: 0
     __iter__ = lambda *a, **k: iter([])
     switch_currency = lambda *a: None
+    remove_item = lambda *a: None
+
     def __init__(self, request):
         """
 Store the request so we can add the real cart ID to the
@@ -49,6 +51,7 @@ the cart ID in the session.
         cart = MultiCurrencyCart.objects.create(currency=self.currency)
         cart.add_item(*args, **kwargs)
         self._request.session["cart"] = cart.id
+        self._request.cart = cart
 
 def make_choices(choices):
     """

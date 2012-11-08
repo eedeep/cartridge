@@ -845,7 +845,32 @@ class Cart(models.Model):
             variation.product.actions.added_to_cart()
         item.quantity += quantity
         item.save()
+        self._clear_item_cache()
+
+    def remove_item(self, item_id):
+        """Remove the item from the cart with the specified id
+        and return True is successful.
+        """
+        result = False
+        try:
+            item = CartItem.objects.get(id=item_id, cart=self)
+        except (ObjectDoesNotExist, ValueError):
+            elog.warning("Unable to find item {} in user's cart {} (cart last update {})".format(
+                item_id,
+                self.id,
+                self.last_updated.strftime("%c"),
+                )
+            )
+        else:
+            item.delete()
+            result = True
+            self._clear_item_cache()
+
+        return result
+
+    def _clear_item_cache(self):
         if hasattr(self, "_cached_items"): del self._cached_items
+
 
     def has_items(self):
         """
