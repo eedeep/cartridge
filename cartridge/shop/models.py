@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 from decimal import Decimal, ROUND_UP
 from operator import iand, ior
+from exceptions import NotImplementedError
 
 from django.db import models
 from django.db.models import CharField, Q
@@ -339,7 +340,35 @@ def product_image_path(instance, filename):
     product_code = instance.product.master_item_code.split('-')[0]
     return "static/media/product/images/{0}/{1}".format(product_code, filename)
 
-class ProductImage(Orderable):
+
+class CloudFrontImage(models.Model):
+  
+    class Meta:
+        abstract = True
+
+    def stored_image_path(self):
+        raise NotImplementedError
+
+    def get_absolute_path(self):
+        """
+        In order to make use of the boto storage backend to upload
+        files to the CDN we need to set the path to the aboslute
+        path, which includes the static/media prefix. This method
+        deals with the fact that during the transition to
+        using the boto storage backend to manage file uploads
+        we may have some images with paths that are like:
+            static/media/product/images/202718/v_040700cdca4a031ed80e975056f23f9c_202718-70-2.JPG
+        and some that are still like:
+            product/images/202718/202718-70-2.JPG
+        So in templates, use this method and don't prefix with {{ MEDIA_URL }}
+        """
+        return os.path.join(
+            settings.MEDIA_URL,
+            self.stored_image_path().replace('static/media/', '', 1)
+        )
+
+
+class ProductImage(Orderable, CloudFrontImage):
     """
     An image for a product - a relationship is also defined with the
     product's variations so that each variation can potentially have
@@ -391,29 +420,13 @@ class ProductImage(Orderable):
         image_md5.update(image_content)
         return format_mask.format(image_md5.hexdigest(), base_filename)
 
+    def stored_image_path(self):
+        return self.file.name
+
     def image_content(self):
         image_content = self.file.file.file.getvalue()
         self.file.file.seek(0)
         return image_content
-
-    def get_absolute_path(self):
-        """
-        In order to make use of the boto storage backend to upload
-        files to the CDN we need to set the path to the aboslute
-        path, which includes the static/media prefix. This method
-        deals with the fact that during the transition to
-        using the boto storage backend to manage file uploads
-        we may have some product images with paths that are like:
-            static/media/product/images/202718/v_040700cdca4a031ed80e975056f23f9c_202718-70-2.JPG
-        and some that are still like:
-            product/images/202718/202718-70-2.JPG
-        So in templates, use this method and don't prefix with {{ MEDIA_URL }}
-        """
-        if self.file.name.startswith('static/media/'):
-            file_path = self.file.name.lstrip('static/media/')
-        else:
-            file_path = self.file.name
-        return os.path.join(settings.MEDIA_URL, file_path)
 
     def save(self, *args, **kwargs):
         try:
@@ -1294,10 +1307,15 @@ class CategoryTheme(models.Model):
 # CO ADDED
 ############
 
-class CategoryPageImage(models.Model):
+class CategoryPageImage(CloudFrontImage):
     panel = models.ForeignKey('CategoryTheme')
 
-    image = models.ImageField(_("Image"), max_length=100, blank=True, upload_to="category_page")
+    image = models.ImageField(
+        _("Image"),
+        max_length=100,
+        blank=True,
+        upload_to="static/media/category_page"
+    )
     alt_text = models.CharField(max_length=140,blank=True)
     link = models.URLField(max_length=160, verify_exists=False, blank=True)
 
@@ -1315,6 +1333,9 @@ class CategoryPageImage(models.Model):
 
     def __unicode__(self):
         return self.alt_text
+
+    def stored_image_path(self):
+        return self.image.name
 
     def save(self, *args, **kwargs):
         if self.publish_date is None:
