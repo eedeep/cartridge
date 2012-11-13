@@ -29,14 +29,13 @@ shipping_fields = _flds("shipping_detail")
 category_fieldsets = deepcopy(PageAdmin.fieldsets)
 category_fieldsets[0][1]["fields"][3:3] = ["content"]  # , "products"]
 category_fieldsets += ((_("Product filters"), {
-    "fields": ("options", "products", "sale", ("price_min", "price_max"), "combined", "hide_sizes"),
+    "fields": ("products", "hide_sizes"),
     "classes": ("collapse-closed",)},),)
 
 
 class CategoryAdmin(PageAdmin):
     fieldsets = category_fieldsets
     formfield_overrides = {ImageField: {"widget": ImageWidget}}
-    filter_horizontal = ("options",)
     form = CategoryAdminForm
 
     def save_model(self, request, obj, form, change):
