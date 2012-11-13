@@ -53,14 +53,6 @@ class Category(Page, RichText):
     A category of products on the website.
     """
 
-    options = models.ManyToManyField("ProductOption", blank=True,
-                                     related_name="product_options")
-    sale = models.ForeignKey("Sale", blank=True, null=True)
-    price_min = fields.MoneyField(_("Minimum price"), blank=True, null=True)
-    price_max = fields.MoneyField(_("Maximum price"), blank=True, null=True)
-    combined = models.BooleanField(default=True, help_text="If checked, "
-        "products must match all specified filters, otherwise products "
-        "can match any specified filter.")
     hide_sizes = models.BooleanField(_("Hide size filter"),
             help_text=_("If ticked the size filter will be hidden when the category is displayed."),
             default=False)
@@ -73,49 +65,7 @@ class Category(Page, RichText):
         """
         Returns product filters as a Q object for the category.
         """
-        # Build a list of Q objects to filter variations by.
-        filters = []
-        # Build a lookup dict of selected options for variations.
-        options = self.options.as_fields()
-        if options:
-            lookup = dict([("%s__in" % k, v) for k, v in options.items()])
-            filters.append(Q(**lookup))
-        # Q objects used against variations to ensure sale date is
-        # valid when filtering by sale, or sale price.
-        now = datetime.now()
-        valid_sale_from = Q(sale_from__isnull=True) | Q(sale_from__lte=now)
-        valid_sale_to = Q(sale_to__isnull=True) | Q(sale_to__gte=now)
-        valid_sale_date = valid_sale_from & valid_sale_to
-        # Filter by variations with the selected sale if the sale date
-        # is valid.
-        if self.sale_id:
-            filters.append(Q(sale_id=self.sale_id) & valid_sale_date)
-        # If a price range is specified, use either the unit price or
-        # a sale price if the sale date is valid.
-        if self.price_min or self.price_max:
-            prices = []
-            if self.price_min:
-                sale = Q(sale_price__gte=self.price_min) & valid_sale_date
-                prices.append(Q(unit_price__gte=self.price_min) | sale)
-            if self.price_max:
-                sale = Q(sale_price__lte=self.price_max) & valid_sale_date
-                prices.append(Q(unit_price__lte=self.price_max) | sale)
-            filters.append(reduce(iand, prices))
-        # Turn the variation filters into a product filter.
-        operator = iand if self.combined else ior
-        products = Q(id__in=self.products.only("id"))
-        if filters:
-            filters = reduce(operator, filters)
-            variations = ProductVariation.objects.filter(filters)
-            filters = [Q(variations__in=variations)]
-            # If filters exist, checking that products have been
-            # selected is neccessary as combining the variations
-            # with an empty ID list lookup and ``AND`` will always
-            # result in an empty result.
-            if self.products.count() > 0:
-                filters.append(products)
-            return reduce(operator, filters)
-        return products
+        return Q(id__in=self.products.only("id"))
 
 
 class Priced(models.Model):
@@ -1035,13 +985,22 @@ class Discount(models.Model):
         return self.title
 
     def all_products(self):
+        """Return a queryset containing all Products that this discount applies
+        to.
         """
-        Return the selected products as well as the products in the
-        selected categories.
+        return Product.objects.filter(
+            Q(categories__in=self.categories.values_list('id', flat=True)) |
+            Q(id__in=self.products.values_list('id', flat=True))
+        ).distinct()
+
+    def all_variations(self):
+        """Return a queryset containing all ProductVariations that this discount
+        applies to.
         """
-        filters = [category.filters() for category in self.categories.all()]
-        filters = reduce(ior, filters + [Q(id__in=self.products.only("id"))])
-        return Product.objects.filter(filters).distinct()
+        return ProductVariation.objects.filter(
+            Q(product__categories__in=self.categories.values_list('id', flat=True)) |
+            Q(product__in=self.products.values_list('id', flat=True))
+        ).distinct()
 
 
 class Sale(Discount):
