@@ -327,15 +327,9 @@ class ShippingForm(forms.Form):
             )
             set_shipping(self._request, shipping_option, shipping_cost)
             if discount:
-                discount_total, bundle_discount_total = self._request.cart.calculate_discount(
-                    discount,
-                    self._currency
-                )
                 if discount.free_shipping:
                     set_shipping(self._request, settings.FREE_SHIPPING, 0)
                 self._request.session["free_shipping"] = discount.free_shipping
-                self._request.session["discount_total"] = discount_total
-                self._request.session["bundle_discount_total"] = bundle_discount_total
 
 
 class DiscountForm(forms.ModelForm):

@@ -914,14 +914,22 @@ class Cart(models.Model):
         Calculates the discount based on the items in a cart, some
         might have the discount, others might not.
         """
+        return self._calculate_discount(discount, currency)[:2]
+
+    def bundling_data(self, discount, currency):
+        return self._calculate_discount(discount, currency)[2]
+
+    def _calculate_discount(self, discount, currency):
         # Discount applies to cart total if not product specific.
         discount_total = Decimal("0")
         bundle_discount_total = Decimal("0")
+
         if discount:
-            products = discount.all_products()
-            specific_products = len(products[:1]) > 0
-            lookup = {"product__in": products, "sku__in": self.skus()}
-            discount_variations = ProductVariation.objects.filter(**lookup)
+            specific_products = discount.products.count() or \
+              discount.categories.count()
+            discount_variations = discount.all_variations().filter(
+                sku__in=self.skus(),
+            )
             discount_skus = discount_variations.values_list("sku", flat=True)
             discount_deduct = getattr(discount, "_discount_deduct_{}".format(
                     currency.lower()))
@@ -934,9 +942,10 @@ class Cart(models.Model):
             discount_skus = []
 
         from multicurrency.models import MultiCurrencyProductVariation
-        mc_variations = list(MultiCurrencyProductVariation.objects.filter(
+        mc_variations = MultiCurrencyProductVariation.objects.filter(
             sku__in=self.skus(),
-        ))
+        )
+
         bundle_ids = set(mc_variation.bundle_discount_id
                 for mc_variation in mc_variations
                 if mc_variation.bundle_discount_id
@@ -946,6 +955,7 @@ class Cart(models.Model):
             id__in=bundle_ids
         ).values_list(
             'id',
+            '_title_{}'.format(currency.lower()),
             'quantity',
             '_bundled_unit_price_{}'.format(currency.lower()),
         ).distinct()
@@ -957,10 +967,10 @@ class Cart(models.Model):
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
         bundle_collection = {
-            id_: (quantity, bundle_unit_price, {})
-            for id_, quantity, bundle_unit_price in active_bundles
+            id_: (title, quantity, bundle_unit_price, {})
+            for id_, title, quantity, bundle_unit_price in active_bundles
         }
-        fall_back_collection = (0, 0, {})
+        fall_back_collection = ('', 0, 0, {})
         bundle_collection[None] = fall_back_collection
         for item in self:
             sku = item.sku
@@ -980,7 +990,7 @@ class Cart(models.Model):
             sku_dict = bundle_collection.get(
                   mc_variation.bundle_discount_id,
                   fall_back_collection,
-            )[2]
+            )[3]
 
             sku_prefix = mc_variation.option1.split('-')[0]
             sku_dict.setdefault(sku_prefix, []).extend(
@@ -991,10 +1001,15 @@ class Cart(models.Model):
         # because we could bundle something doesn't mean
         # we should. It possible that it's cheaper for the
         # customer not bundle or use a discount code instead.
-        for quantity, bundle_price, sku_dict in \
+        currency_format = settings.STORE_CONFIGS[currency.upper()].currency_format
+        bundling_data = []
+        for title, quantity, bundle_price, sku_dict in \
           bundle_collection.values():
 
-            if not quantity or not bundle_price:
+            bundle_count = 0
+            bundle_discount = Decimal('0.00')
+
+            if not all([quantity, title, bundle_price]):
                 # Filter out out fall_back_collection and
                 # any other bundles that have invalid values.
                 continue
@@ -1014,11 +1029,20 @@ class Cart(models.Model):
                     keep_bundling &= discounted_price > bundle_price
                     keep_bundling &= len(potential_bundle) == quantity
                     if keep_bundling:
-                        bundle_discount_total += normal_price - bundle_price
+                        bundle_count += 1
+                        difference = normal_price - bundle_price
+                        bundle_discount += difference
+                        bundle_discount_total += difference
                     else:
                         discount_total += normal_price - discounted_price
 
-        return discount_total, bundle_discount_total
+            if bundle_count:
+                bundling_data.append({
+                    'bundle_title': title,
+                    'quantity': bundle_count,
+                    'discount': currency_format + str(bundle_discount),
+                })
+        return discount_total, bundle_discount_total, bundling_data
 
     def has_no_stock(self):
         "Return the products of the cart with no stock"

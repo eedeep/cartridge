@@ -33,6 +33,7 @@ request.
     __iter__ = lambda *a, **k: iter([])
     switch_currency = lambda *a: None
     remove_item = lambda *a: None
+    bundling_data = lambda *a: {}
 
     def __init__(self, request):
         """
