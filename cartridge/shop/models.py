@@ -652,8 +652,6 @@ class Order(models.Model):
     shipping_total = fields.MoneyField(_("Shipping total"))
     item_total = fields.MoneyField(_("Item total"))
     discount_code = fields.DiscountCodeField(_("Discount code"), blank=True)
-    discount_total = fields.MoneyField(_("Discount total"))
-    bundle_discount_total = fields.MoneyField(_("Bundle discount total"))
     total = fields.MoneyField(_("Order total"))
     transaction_id = CharField(_("Transaction ID"), max_length=255, null=True,
                                blank=True)
@@ -680,7 +678,7 @@ class Order(models.Model):
 
     # These are fields that are stored in the session. They're copied to
     # the order in setup() and removed from the session in complete().
-    session_fields = ("shipping_type", "shipping_total", "discount_total", "bundle_discount_total", "tax_total")
+    session_fields = ("shipping_type", "shipping_total", "tax_total")
 
     class Meta:
         verbose_name = _("Order")
@@ -718,10 +716,6 @@ class Order(models.Model):
         # Note that tax_total is not a persistent model field at this stage
         if hasattr(self, 'tax_total') and self.tax_total is not None:
             self.total += self.tax_total
-        if self.discount_total is not None:
-            self.total -= self.discount_total
-        if self.bundle_discount_total is not None:
-            self.total -= self.bundle_discount_total
         self.currency = session_currency(request)
         self.save()  # We need an ID before we can add related items.
         for item in request.cart:
@@ -825,7 +819,7 @@ class Cart(models.Model):
         ensuring the items are only retrieved once and cached.
         """
         if not hasattr(self, "_cached_items"):
-            self._cached_items = self.items.all()
+            self._cached_items = list(self.items.all())
         return iter(self._cached_items)
 
     def add_item(self, variation, quantity):
@@ -869,8 +863,8 @@ class Cart(models.Model):
         return result
 
     def _clear_item_cache(self):
-        if hasattr(self, "_cached_items"): del self._cached_items
-
+        if hasattr(self, "_cached_items"):
+            del self._cached_items
 
     def has_items(self):
         """
@@ -888,7 +882,7 @@ class Cart(models.Model):
         """
         Template helper function - sum of all costs of item quantities.
         """
-        return sum([item.total for item in self])
+        return sum([item.total_price for item in self])
 
     def skus(self):
         """
@@ -910,20 +904,7 @@ class Cart(models.Model):
         return list(with_cart_excluded.distinct())
 
     def calculate_discount(self, discount, currency):
-        """
-        Calculates the discount based on the items in a cart, some
-        might have the discount, others might not.
-        """
-        return self._calculate_discount(discount, currency)[:2]
-
-    def bundling_data(self, discount, currency):
-        return self._calculate_discount(discount, currency)[2]
-
-    def _calculate_discount(self, discount, currency):
         # Discount applies to cart total if not product specific.
-        discount_total = Decimal("0")
-        bundle_discount_total = Decimal("0")
-
         if discount:
             specific_products = discount.products.count() or \
               discount.categories.count()
@@ -975,26 +956,29 @@ class Cart(models.Model):
         for item in self:
             sku = item.sku
             mc_variation = max(mc_variations, key=lambda x: sku == x.sku)
-            if (mc_variation.on_sale(currency) or
-                mc_variation.is_marked_down(currency)):
-                continue
-
-            unit_price = item.unit_price
-            discount_price = unit_price
-            if ((specific_products and sku in discount_skus) or
-                not specific_products):
-                discount_price -= discount.calculate(
-                    unit_price,
+            item.unit_price = mc_variation.price(currency)
+            item.discount_unit_price = item.unit_price
+            item.bundle_quantity = 0
+            should_discount = all([
+                not mc_variation.on_sale(currency),
+                not mc_variation.is_marked_down(currency),
+                not specific_products or sku in discount_skus
+            ])
+            if should_discount:
+                item.discount_unit_price -= discount.calculate(
+                    item.unit_price,
                     currency
                 )
-            sku_dict = bundle_collection.get(
-                  mc_variation.bundle_discount_id,
-                  fall_back_collection,
-            )[3]
+            _bundle_title, bundle_quantity, bundle_unit_price, sku_dict = \
+              bundle_collection[mc_variation.bundle_discount_id]
+            if bundle_quantity:
+                item.bundle_unit_price = bundle_unit_price / bundle_quantity
+            else:
+                item.bundle_unit_price = item.unit_price
 
             sku_prefix = mc_variation.option1.split('-')[0]
             sku_dict.setdefault(sku_prefix, []).extend(
-                [(unit_price, discount_price)] * item.quantity
+                [item] * item.quantity
             )
 
         # Bundle things up as much as we can. Note: Just
@@ -1006,16 +990,13 @@ class Cart(models.Model):
         for title, quantity, bundle_price, sku_dict in \
           bundle_collection.values():
 
-            bundle_count = 0
-            bundle_discount = Decimal('0.00')
-
             if not all([quantity, title, bundle_price]):
                 # Filter out out fall_back_collection and
                 # any other bundles that have invalid values.
                 continue
 
             for bundle_skus in sku_dict.values():
-                bundle_skus.sort(key=lambda x: x[1], reverse=True)
+                bundle_skus.sort(key=lambda x: x.discount_unit_price, reverse=True)
                 potential_bundles = iter_bundle(
                     bundle_skus,
                     quantity,
@@ -1024,25 +1005,16 @@ class Cart(models.Model):
                 # as it is reducing the over price.
                 keep_bundling = True
                 for potential_bundle in potential_bundles:
-                    normal_price = sum(zip(*potential_bundle)[0])
-                    discounted_price = sum(zip(*potential_bundle)[1])
+                    normal_price = sum(item.unit_price for item in potential_bundle)
+                    discounted_price = sum(item.discount_unit_price for item in potential_bundle)
                     keep_bundling &= discounted_price > bundle_price
                     keep_bundling &= len(potential_bundle) == quantity
                     if keep_bundling:
-                        bundle_count += 1
-                        difference = normal_price - bundle_price
-                        bundle_discount += difference
-                        bundle_discount_total += difference
-                    else:
-                        discount_total += normal_price - discounted_price
+                        for item in potential_bundle:
+                            item.bundle_quantity += 1
 
-            if bundle_count:
-                bundling_data.append({
-                    'bundle_title': title,
-                    'quantity': bundle_count,
-                    'discount': currency_format + str(bundle_discount),
-                })
-        return discount_total, bundle_discount_total, bundling_data
+        for item in self:
+            item.save()
 
     def has_no_stock(self):
         "Return the products of the cart with no stock"
@@ -1061,9 +1033,40 @@ class SelectedProduct(models.Model):
 
     sku = fields.SKUField()
     description = CharField(_("Description"), max_length=200)
-    quantity = models.IntegerField(_("Quantity"), default=0)
-    unit_price = fields.MoneyField(_("Unit price"), default=Decimal("0"))
-    total_price = fields.MoneyField(_("Total price"), default=Decimal("0"))
+    quantity = models.IntegerField(
+        _("Total quantity"),
+        default=0,
+        help_text="The total quantity including bundled and non-bundled items. Any items that aren't bundled will incur the discount unit price."
+    )
+    bundle_quantity = models.IntegerField(
+        _("Bundle quantity"),
+        default=0,
+        help_text="The subset of the total quanity which will incur 'bundle unit price'.",
+    )
+
+    unit_price = fields.MoneyField(
+        _("Unit price"),
+        default=Decimal("0"),
+        help_text="The unit price without bundle or discount code application.",
+    )
+
+    discount_unit_price = fields.MoneyField(
+        _("Discount unit price"),
+        default=Decimal("0"),
+        help_text="The per item price that applies to non-bundled items.",
+    )
+
+    bundle_unit_price = fields.MoneyField(
+        _("Bundle unit price"),
+        default=Decimal("0"),
+        help_text="The per item price that applies to bundled items.",
+    )
+
+    total_price = fields.MoneyField(
+        _("Total price"),
+        default=Decimal("0"),
+        help_text="The total price of the items including bundling and discount codes.",
+    )
 
     class Meta:
         abstract = True
@@ -1072,23 +1075,38 @@ class SelectedProduct(models.Model):
         return ""
 
     def save(self, *args, **kwargs):
-        self.total_price = self.unit_price * self.quantity
+        self.total_price = sum([
+                self.non_discounted_price,
+                self.bundle_discount,
+                self.discount_code_discount,
+        ])
         super(SelectedProduct, self).save(*args, **kwargs)
+
+    @property
+    def non_discounted_price(self):
+        """The price of the items without taking into account discounting
+        and bundling."""
+        return self.quantity * self.unit_price
+
+    @property
+    def bundle_discount(self):
+        """The discount from bundling that can be attributed
+        to this SelectedProduct."""
+        return self.bundle_quantity * \
+          (self.bundle_unit_price - self.unit_price)
+
+    @property
+    def discount_code_discount(self):
+        """The discount from the discount code that can be
+        attributed to this SelectedProduct."""
+        return  (self.quantity - self.bundle_quantity) * \
+           (self.discount_unit_price - self.unit_price)
 
 class CartItem(SelectedProduct):
 
     cart = models.ForeignKey("Cart", related_name="items", on_delete=models.CASCADE)
     url = CharField(max_length=200)
     image = CharField(max_length=200, null=True)
-
-    @property
-    def total(self):
-        """ total_price including promotion discount if available """
-        t = self.total_price
-        promotion_discount = getattr(self, "promotion_discount", Decimal("0.0"))
-        if promotion_discount>0:
-            t -= promotion_discount
-        return t
 
     @property
     def title(self):
@@ -1280,13 +1298,14 @@ class DiscountCodeUniqueAbstract(models.Model):
 class BundleDiscount(models.Model):
     title = CharField(max_length=100)
     active = models.BooleanField(_("Active"))
+    upsell_message = CharField(_("Upsell message"), max_length=256, blank=True, null=True)
+    applied_message = CharField(_("Bundle applied message"), max_length=256, blank=True, null=True)
     valid_from = models.DateTimeField(_("Valid from"), blank=True, null=True)
     valid_to = models.DateTimeField(_("Valid to"), blank=True, null=True)
     quantity = models.IntegerField(_("Bundle quantity"), default=2)
     bundled_unit_price = fields.MoneyField(_("Bundled unit price"))
     products = models.ManyToManyField("Product", blank=True)
     categories = models.ManyToManyField("Category", blank=True)
-    maximise_discount = models.BooleanField('Maximise discount')
 
     objects = managers.DiscountManager()
 
@@ -1391,25 +1410,6 @@ class DiscountCode(Discount, DiscountCodeUniqueAbstract):
             discount =  amount / Decimal("100") * self.discount_percent
             return discount.quantize(Decimal('0.01'), rounding=ROUND_UP)
         return 0
-
-    def calculate_cart(self, cart, currency):
-        """
-        Calculates the discount based on the items in the cart
-        """
-        #if not applied to individual products or categories, discount the entire cart (as per the original cartridge functionality)
-        if self.products.count() == 0 and self.categories.count() == 0:
-            return self.calculate(cart.total_price(), currency)
-        #or, since there are products and categories, loop through cart and calc.
-        discount = Decimal("0")
-        #the products that can be discounted
-        skus = [x.sku for x in cart]
-        products = self.products.filter(variations__sku__in=skus) | Product.objects.filter(categories=self.categories.all(), variations__sku__in=skus)
-
-        for item in cart:
-            if products.filter(variations__sku=item.sku).count()>0: #apply a discount to this product
-                discount += self.calculate(item.total_price, currency)
-        discount = discount.quantize(Decimal('0.01'), rounding=ROUND_UP)
-        return discount
 
     class Meta:
         verbose_name = _("Discount code")

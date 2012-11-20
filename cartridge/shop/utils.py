@@ -26,7 +26,7 @@ request.
     upsell_products = lambda *a, **k: []
     total_quantity = lambda *a, **k: 0
     total_price = lambda *a, **k: 0
-    calculate_discount = lambda *a, **k: (0, 0)
+    calculate_discount = lambda *a, **k: None
     has_no_stock = lambda *a, **k: []
     has_items = lambda *a, **k: False
     __int__ = lambda *a, **k: 0
@@ -51,6 +51,7 @@ the cart ID in the session.
         from multicurrency.models import MultiCurrencyCart
         cart = MultiCurrencyCart.objects.create(currency=self.currency)
         cart.add_item(*args, **kwargs)
+        recalculate_discount(self._request)
         self._request.session["cart"] = cart.id
         self._request.cart = cart
 
@@ -71,14 +72,8 @@ def recalculate_discount(request):
     request.cart = Cart.objects.from_request(request)
     discount_code = request.session.get("discount_code", "")
     discount_form = DiscountForm(request, {"discount_code": discount_code})
-    if discount_form.is_valid():
-        discount_form.set_discount()
-    else:
-        try:
-            del request.session["discount_total"]
-            del request.session["bundle_discount_total"]
-        except KeyError:
-            pass
+    discount_form.is_valid()
+    discount_form.set_discount()
 
 def set_discount(request, discount_total):
     """

@@ -206,7 +206,7 @@ class OrderAdmin(admin.ModelAdmin):
         (_("Billing details"), {"fields": (tuple(billing_fields),)}),
         (_("Shipping details"), {"fields": (tuple(shipping_fields),)}),
         (None, {"fields": ("additional_instructions", ("shipping_total",
-            "shipping_type"), ("discount_total", "discount_code", "bundle_discount_total"),
+            "shipping_type"), ("discount_code",),
             "item_total", ("total", "status"), "transaction_id")}),
     )
 
@@ -249,27 +249,32 @@ class DiscountCodeAdmin(admin.ModelAdmin):
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),
     )
 
-BUNDLE_PRICES = []
+MULTI_CURRENCY_FIELDS = []
 if hasattr(settings, 'STORE_CONFIGS'):
     for currency in settings.STORE_CONFIGS:
-        BUNDLE_PRICES += [
+        MULTI_CURRENCY_FIELDS += [
             '_title_{}'.format(currency.lower()),
             '_bundled_unit_price_{}'.format(currency.lower()),
+            '_upsell_message_{}'.format(currency.lower()),
+            '_applied_message_{}'.format(currency.lower()),
         ]
 else:
-    BUNDLE_PRICES.append('bundled_unit_price')
+    MULTI_CURRENCY_FIELDS.extend([
+        'bundled_unit_price',
+        'upsell_message',
+        'applied_message',
+    ])
 
 
 class BundleDiscountAdmin(admin.ModelAdmin):
-    list_display = ["title", "active", "quantity"] + BUNDLE_PRICES + \
-                    ["maximise_discount", "valid_from", "valid_to"]
+    list_display = ["title", "active", "quantity"] + MULTI_CURRENCY_FIELDS + \
+                    ["valid_from", "valid_to"]
     list_editable = ("active", "valid_from", "valid_to")
     model = BundleDiscount
     filter_horizontal = ("categories", "products")
     formfield_overrides = {MoneyField: {"widget": MoneyWidget}}
     fieldsets = (
-        (None, {"fields": ["title", "active", "quantity"] + BUNDLE_PRICES + \
-                           ["maximise_discount"]}),
+        (None, {"fields": ["title", "active", "quantity"] + MULTI_CURRENCY_FIELDS}),
         (_("Apply to product and/or products in categories"),
             {"fields": ("products", "categories")}),
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),

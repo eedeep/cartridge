@@ -232,8 +232,6 @@ def _discount_data(request, discount_form):
 
     data = {
        'error_message': ' '.join(list(itertools.chain.from_iterable(discount_form.errors.values()))),
-       'discount_total': updated_context['discount_total'],
-       'bundle_discount_total': updated_context['bundle_discount_total'],
        'total_price':  updated_context['order_total'],
        'shipping_total': updated_context['shipping_total'],
     }
@@ -291,8 +289,7 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
                     info(request, _("Cart updated"))
         else:
             discount_valid = discount_form.is_valid()
-            if discount_valid:
-                discount_form.set_discount()
+            discount_form.set_discount()
             shipping_valid = shipping_form.is_valid()
             if shipping_valid:
                 shipping_form.set_shipping()
@@ -311,10 +308,8 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
         len(DiscountCode.objects.active()[:1]) > 0):
         context["discount_form"] = discount_form
     context["shipping_form"] = shipping_form
-
     context["extends_template"] = extends_template
     context['CURRENT_REGION'] = getattr(settings, 'CURRENT_REGION', '')
-    context['bundle_discount_total'] = request.session.get('bundle_discount_total', None)
 
     if request.is_ajax():
         return HttpResponse(_discount_data(request, discount_form), "application/javascript")
