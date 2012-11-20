@@ -3,26 +3,23 @@ import datetime
 from south.db import db
 from south.v2 import SchemaMigration
 from django.db import models
-
+from django.conf import settings
 
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
+        multi_currency_fields = []
+        for currency in settings.STORE_CONFIGS:
+            multi_currency_fields.extend([
+            ('_title_{}'.format(currency.lower()), self.gf('django.db.models.fields.CharField')(max_length=64, null=True, blank=True)),
+            ('_upsell_message_{}'.format(currency.lower()), self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
+            ('_applied_message_{}'.format(currency.lower()), self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
+            ('_bundled_unit_price_{}'.format(currency.lower()), self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True)),
+        ])
+
         # Adding model 'BundleDiscount'
-        db.create_table('shop_bundlediscount', (
+        db.create_table('shop_bundlediscount', [
             ('id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
-            ('_title_myr', self.gf('django.db.models.fields.CharField')(max_length=64, null=True, blank=True)),
-            ('_upsell_message_myr', self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
-            ('_applied_message_myr', self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
-            ('_bundled_unit_price_myr', self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True)),
-            ('_title_sgd', self.gf('django.db.models.fields.CharField')(max_length=64, null=True, blank=True)),
-            ('_upsell_message_sgd', self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
-            ('_applied_message_sgd', self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
-            ('_bundled_unit_price_sgd', self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True)),
-            ('_title_hkd', self.gf('django.db.models.fields.CharField')(max_length=64, null=True, blank=True)),
-            ('_upsell_message_hkd', self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
-            ('_applied_message_hkd', self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
-            ('_bundled_unit_price_hkd', self.gf('django.db.models.fields.DecimalField')(null=True, max_digits=12, decimal_places=2, blank=True)),
             ('title', self.gf('django.db.models.fields.CharField')(max_length=100)),
             ('active', self.gf('django.db.models.fields.BooleanField')(default=False)),
             ('upsell_message', self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True)),
@@ -31,7 +28,7 @@ class Migration(SchemaMigration):
             ('valid_to', self.gf('django.db.models.fields.DateTimeField')(null=True, blank=True)),
             ('quantity', self.gf('django.db.models.fields.IntegerField')(default=2)),
             ('bundled_unit_price', self.gf('cartridge.shop.fields.MoneyField')(null=True, max_digits=10, decimal_places=2, blank=True)),
-        ))
+        ] + multi_currency_fields)
         db.send_create_signal('shop', ['BundleDiscount'])
 
         # Adding M2M table for field products on 'BundleDiscount'
