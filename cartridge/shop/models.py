@@ -1016,6 +1016,8 @@ class Cart(models.Model):
         for item in self:
             item.save()
 
+        return bundle_collection
+
     def has_no_stock(self):
         "Return the products of the cart with no stock"
         no_stock = []
