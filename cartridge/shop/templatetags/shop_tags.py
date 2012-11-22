@@ -142,7 +142,7 @@ def related_products_by_keywords(context, product):
     """
     from cartridge.shop.models import Product
     keyword_ids = product.keywords.values_list('keyword', flat=True)
-    products = Product.objects.published().filter(in_stock=True).exclude(pk=product.pk).filter(keywords__keyword__in=keyword_ids).distinct()
+    products = Product.objects.published().filter(in_stock=True).exclude(pk=product.pk).filter(keywords__keyword__in=keyword_ids, master_item_code__startswith=product.master_item_code[:2]).distinct()
     context.update({
         "related_products": products,
         })
