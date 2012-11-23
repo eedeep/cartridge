@@ -948,10 +948,10 @@ class Cart(models.Model):
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
         bundle_collection = {
-            id_: (title, quantity, bundle_unit_price, {})
+            id_: (title, quantity, bundle_unit_price, [])
             for id_, title, quantity, bundle_unit_price in active_bundles
         }
-        fall_back_collection = ('', 0, 0, {})
+        fall_back_collection = ('', 0, 0, [])
         bundle_collection[None] = fall_back_collection
         for item in self:
             sku = item.sku
@@ -969,25 +969,20 @@ class Cart(models.Model):
                     item.unit_price,
                     currency
                 )
-            _bundle_title, bundle_quantity, bundle_unit_price, sku_dict = \
+            _bundle_title, bundle_quantity, bundle_unit_price, bundlable = \
               bundle_collection[mc_variation.bundle_discount_id]
             if bundle_quantity:
                 item.bundle_unit_price = bundle_unit_price / bundle_quantity
             else:
                 item.bundle_unit_price = item.unit_price
 
-            sku_prefix = mc_variation.option1.split('-')[0]
-            sku_dict.setdefault(sku_prefix, []).extend(
-                [item] * item.quantity
-            )
+            bundlable.extend([item] * item.quantity)
 
         # Bundle things up as much as we can. Note: Just
         # because we could bundle something doesn't mean
         # we should. It possible that it's cheaper for the
         # customer not bundle or use a discount code instead.
-        currency_format = settings.STORE_CONFIGS[currency.upper()].currency_format
-        bundling_data = []
-        for title, quantity, bundle_price, sku_dict in \
+        for title, quantity, bundle_price, bundlable in \
           bundle_collection.values():
 
             if not all([quantity, title, bundle_price]):
@@ -995,23 +990,23 @@ class Cart(models.Model):
                 # any other bundles that have invalid values.
                 continue
 
-            for bundle_skus in sku_dict.values():
-                bundle_skus.sort(key=lambda x: x.discount_unit_price, reverse=True)
-                potential_bundles = iter_bundle(
-                    bundle_skus,
-                    quantity,
+            bundlable.sort(key=lambda x: x.discount_unit_price, reverse=True)
+            potential_bundles = iter_bundle(
+                bundlable,
+                quantity,
+            )
+            # Try to bundle keep bundling items for as long
+            # as it is reducing the over price.
+            keep_bundling = True
+            for potential_bundle in potential_bundles:
+                discounted_price = sum(
+                    item.discount_unit_price for item in potential_bundle
                 )
-                # Try to bundle keep bundling items for as long
-                # as it is reducing the over price.
-                keep_bundling = True
-                for potential_bundle in potential_bundles:
-                    normal_price = sum(item.unit_price for item in potential_bundle)
-                    discounted_price = sum(item.discount_unit_price for item in potential_bundle)
-                    keep_bundling &= discounted_price > bundle_price
-                    keep_bundling &= len(potential_bundle) == quantity
-                    if keep_bundling:
-                        for item in potential_bundle:
-                            item.bundle_quantity += 1
+                keep_bundling &= discounted_price > bundle_price
+                keep_bundling &= len(potential_bundle) == quantity
+                if keep_bundling:
+                    for item in potential_bundle:
+                        item.bundle_quantity += 1
 
         for item in self:
             item.save()
