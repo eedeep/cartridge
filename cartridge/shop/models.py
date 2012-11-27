@@ -869,7 +869,10 @@ class Cart(models.Model):
         discount_variations = ProductVariation.objects.filter(**lookup)
         discount_skus = discount_variations.values_list("sku", flat=True)
         from multicurrency.models import MultiCurrencyProductVariation
-        apply_discount_deduct = True
+        discount_deduct = getattr(discount, "_discount_deduct_{}".format(
+                currency.lower()))
+        min_purchase = getattr(discount, "_min_purchase_{}".format(
+                currency.lower()))
         for item in self:
             mc_variation = MultiCurrencyProductVariation.objects.get(sku=item.sku)
             if (mc_variation.on_sale(currency) or
@@ -877,17 +880,10 @@ class Cart(models.Model):
                 continue
             if ((specific_products and item.sku in discount_skus) or
                 not specific_products):
-                discount_deduct = getattr(discount, "_discount_deduct_{}".format(
-                        currency.lower()))
                 if discount_deduct is not None:
-                    min_purchase = getattr(discount, "_min_purchase_{}".format(
-                            currency.lower()))
-                    discount_amount = discount.calculate(item.unit_price, currency)
-                    if (apply_discount_deduct and
-                        discount_amount > 0 and
-                        self.total_price > min_purchase):
-                        total += discount_amount
-                        apply_discount_deduct = False
+                    if min_purchase and self.total_price > min_purchase:
+                        total += discount_deduct
+                        break
                 else:
                     total += discount.calculate(item.unit_price, currency) * item.quantity
 
