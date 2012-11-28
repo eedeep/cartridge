@@ -537,8 +537,11 @@ class ProductVariation(Priced, ProductVariationAbstract):
         ``num_in_stock`` is ``None`` which is how stock control is
         disabled.
         """
-        live = self.live_num_in_stock()
-        return live is None or quantity == 0 or live >= quantity
+        if settings.SHOP_CART_STOCK_LEVEL:
+            live = self.live_num_in_stock()
+            return live is None or quantity == 0 or live >= quantity
+        else:
+            return self.total_in_stock >= quantity
 
     @property
     def total_in_stock(self):
