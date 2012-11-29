@@ -342,7 +342,12 @@ def checkout_steps(request, extends_template="base.html"):
     checkout_errors = []
 
     cart = request.cart
-    no_stock = cart.has_no_stock()
+    no_stock = []
+    for cart_item in cart.has_no_stock():
+        no_stock += [unicode(cart_item.variation())]
+        cart_item.delete()
+    if len(no_stock) != 0:
+        delattr(cart, '_cached_items')
     if request.POST.get("back") is not None:
         # Back button in the form was pressed - load the order form
         # for the previous step and maintain the field values entered.
