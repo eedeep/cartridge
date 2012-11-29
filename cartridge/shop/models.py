@@ -922,7 +922,7 @@ class SelectedProduct(models.Model):
 
 class CartItem(SelectedProduct):
 
-    cart = models.ForeignKey("Cart", related_name="items")
+    cart = models.ForeignKey("Cart", related_name="items", on_delete=models.CASCADE)
     url = CharField(max_length=200)
     image = CharField(max_length=200, null=True)
 
