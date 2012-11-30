@@ -21,7 +21,7 @@ from django.db.models.fields.related import ManyToManyRel
 
 from mezzanine.conf import settings
 from mezzanine.core.templatetags.mezzanine_tags import thumbnail
-
+from mezzanine.forms.models import Form, Field
 from cartridge.shop import checkout
 from cartridge.shop.models import Product, ProductOption, ProductVariation, \
                                     ProductSyncRequest
@@ -451,6 +451,15 @@ class OrderForm(FormsetForm, DiscountForm):
     card_expiry_year = forms.ChoiceField()
     card_ccv = forms.CharField(label="CCV", help_text=_("A security code, "
         "usually the last 3 digits found on the back of your card."))
+    subscribe = forms.BooleanField(required=False, initial=False,
+        label=_("Please subscribe me."))
+    gender = forms.ChoiceField(label="Gender",
+                               choices=make_choices(['Female', 'Male']))
+    subscription_options = forms.MultipleChoiceField(label="Please subscribe me to",
+                               widget=forms.CheckboxSelectMultiple,
+                                required=False)
+    privacy_policy = forms.BooleanField(required=False, initial=False,
+        label=_("I have read and agree to the privacy policy"))
 
     class Meta:
         model = Order
@@ -504,7 +513,7 @@ class OrderForm(FormsetForm, DiscountForm):
         if hidden is not None:
             for field in self.fields:
                 if hidden(field):
-                    self.fields[field].widget = forms.HiddenInput()
+                    self.fields[field].widget = self.fields[field].hidden_widget()
                     self.fields[field].required = False
 
         # Set the choices for the cc expiry year relative to the current year.
@@ -526,6 +535,18 @@ class OrderForm(FormsetForm, DiscountForm):
                 label=_('Country'),
                 choices=Country.objects.all().values_list('name', 'printable_name'))
 
+        # This is pretty sloppy: Try and determine which subsciprtion
+        # options should be displayed by looking up the magical Form
+        # 'Subscribe' and sniffing out the magical field for it's choices...
+        try:
+            subscription_form = Form.objects.get(title='Subscribe')
+            subscription_options = subscription_form.fields.get(
+                label='Please subscribe me to'
+            ).get_choices()
+        except (Form.DoesNotExist, Field.DoesNotExist):
+            subscription_options = []
+        self.fields['subscription_options'].choices = subscription_options
+
     def clean_card_expiry_year(self):
         """
         Ensure the card expiry doesn't occur in the past.
@@ -546,6 +567,13 @@ class OrderForm(FormsetForm, DiscountForm):
 
     def clean_shipping_detail_country(self):
         return self.check_country(self.cleaned_data['shipping_detail_country'])
+
+    def clean_privacy_policy(self):
+        subscribe = self.cleaned_data['subscribe']
+        agree = self.cleaned_data['privacy_policy']
+        if subscribe and not agree:
+            raise forms.ValidationError("You must agree to the privacy policy to subscribe.")
+        return agree
 
     def check_country(self, country):
         try:
