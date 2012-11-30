@@ -71,7 +71,17 @@ def initial_order_data(request):
     "remember my details".
     """
     if request.method == "POST":
-        return dict(request.POST.items())
+        order_data = dict(request.POST.items())
+
+        # The POST dictionary decides that you don't really
+        # want lists of data and so only returns the last item
+        # of the subscription_options. So go back and get the
+        # value directly. Seems this is probably not django's
+        # problem rather a result of the way cgi.parse_qs works.
+        order_data['subscription_options'] = request.POST.getlist(
+            'subscription_options',
+        )
+        return order_data
     if "order" in request.session:
         # This seems somewhat arbitrary as a place to put this but
         # we want to clear any previously calculated tax from the session

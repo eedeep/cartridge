@@ -45,7 +45,8 @@ except ImportError: #keep running if cartwatcher not installed
 
 #TODO remove cottonon_shop imports from cartridge
 from cottonon_shop.cybersource import Requires3DSecureVerification
-from cottonon_shop.models import ThreeDSecureTransaction
+from cottonon_shop.models import ThreeDSecureTransaction, \
+     create_subscriber_from_dict
 
 # Set up checkout handlers.
 handler = lambda s: import_dotted_path(s) if s else lambda *args: None
@@ -296,7 +297,8 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
         return render(request, template, context)
 
 
-def finalise_order(transaction_id, request, order, remember):
+def finalise_order(transaction_id, request, order,
+                   card_and_billing_data):
     # Finalize order - ``order.complete()`` performs
     # final cleanup of session and cart.
     # ``order_handler()`` can be defined by the
@@ -310,12 +312,29 @@ def finalise_order(transaction_id, request, order, remember):
         response = redirect("coexclusives_shop_complete")
     else:
         response = redirect("shop_complete")
-    if remember:
+
+    if card_and_billing_data.get('remember'):
         remembered = "%s:%s" % (sign(order.key), order.key)
         set_cookie(response, "remember", remembered,
                    secure=request.is_secure())
     else:
         response.delete_cookie("remember")
+
+    subscribe = card_and_billing_data.get('subscribe')
+    if subscribe:
+        create_subscriber_from_dict({
+                'First Name': card_and_billing_data['billing_detail_first_name'],
+                'Last Name': card_and_billing_data['billing_detail_last_name'],
+                'Email': card_and_billing_data['billing_detail_email'],
+                'Gender': card_and_billing_data['gender'],
+                'Country': card_and_billing_data['billing_detail_country'],
+                'Postcode/Zip': card_and_billing_data['billing_detail_postcode'],
+                'Please subscribe me to': ','.join(card_and_billing_data['subscription_options']),
+                'I have read and accept the Privacy Policy': card_and_billing_data['privacy_policy'],
+        })
+
+
+
     return response
 
 
@@ -422,7 +441,7 @@ def checkout_steps(request, extends_template="base.html"):
                         transaction_id,
                         request,
                         order,
-                        form.cleaned_data.get('remember')
+                        form.cleaned_data
                     )
                     return response
 
