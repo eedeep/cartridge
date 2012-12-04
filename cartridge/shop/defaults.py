@@ -213,6 +213,7 @@ register_setting(
     default=(
         (1, _("Unprocessed")),
         (2, _("Processed")),
+        (3, _("Requires Review")),
     ),
 )
 
