@@ -550,7 +550,11 @@ class ProductVariation(Priced, ProductVariationAbstract):
         If stock_pool > STOCK_POOL_CUTOFF: stock - STOCK_THRHESHOLD
         If stock_pool <= 0: stock - STOCK_POOL_THRESHOLD
         """
-        stock = self.num_in_stock
+        if not self.num_in_stock:
+            stock = 0
+        else:
+            stock = self.num_in_stock
+        
         stock_pool = self.num_in_stock_pool
         if stock_pool > settings.STOCK_POOL_CUTOFF:
             threshold = settings.STOCK_POOL_THRESHOLD
