@@ -3,25 +3,15 @@ import datetime
 from south.db import db
 from south.v2 import SchemaMigration
 from django.db import models
-
+from django.conf import settings
 
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
-        # Adding field 'BundleDiscount._applied_upsell_message_myr'
-        db.add_column('shop_bundlediscount', '_applied_upsell_message_myr',
-                      self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True),
-                      keep_default=False)
-
-        # Adding field 'BundleDiscount._applied_upsell_message_sgd'
-        db.add_column('shop_bundlediscount', '_applied_upsell_message_sgd',
-                      self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True),
-                      keep_default=False)
-
-        # Adding field 'BundleDiscount._applied_upsell_message_hkd'
-        db.add_column('shop_bundlediscount', '_applied_upsell_message_hkd',
-                      self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True),
-                      keep_default=False)
+        for currency in settings.STORE_CONFIGS:
+            db.add_column('shop_bundlediscount', '_applied_upsell_message_{}'.format(currency.lower()),
+                          self.gf('django.db.models.fields.CharField')(max_length=256, null=True, blank=True),
+                          keep_default=False)
 
         # Adding field 'BundleDiscount.applied_upsell_message'
         db.add_column('shop_bundlediscount', 'applied_upsell_message',
@@ -29,14 +19,8 @@ class Migration(SchemaMigration):
                       keep_default=False)
 
     def backwards(self, orm):
-        # Deleting field 'BundleDiscount._applied_upsell_message_myr'
-        db.delete_column('shop_bundlediscount', '_applied_upsell_message_myr')
-
-        # Deleting field 'BundleDiscount._applied_upsell_message_sgd'
-        db.delete_column('shop_bundlediscount', '_applied_upsell_message_sgd')
-
-        # Deleting field 'BundleDiscount._applied_upsell_message_hkd'
-        db.delete_column('shop_bundlediscount', '_applied_upsell_message_hkd')
+        for currency in settings.STORE_CONFIGS:
+                db.delete_column('shop_bundlediscount', '_applied_upsell_message_{}'.format(currency.lower()))
 
         # Deleting field 'BundleDiscount.applied_upsell_message'
         db.delete_column('shop_bundlediscount', 'applied_upsell_message')
