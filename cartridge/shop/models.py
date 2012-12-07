@@ -1297,6 +1297,7 @@ class BundleDiscount(models.Model):
     active = models.BooleanField(_("Active"))
     upsell_message = CharField(_("Upsell message"), max_length=256, blank=True, null=True)
     applied_message = CharField(_("Bundle applied message"), max_length=256, blank=True, null=True)
+    applied_upsell_message = CharField(_("Bundle applied but with remainders message"), max_length=256, blank=True, null=True)
     valid_from = models.DateTimeField(_("Valid from"), blank=True, null=True)
     valid_to = models.DateTimeField(_("Valid to"), blank=True, null=True)
     quantity = models.IntegerField(_("Bundle quantity"), default=2)

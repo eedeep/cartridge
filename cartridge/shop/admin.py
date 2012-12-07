@@ -257,12 +257,14 @@ if hasattr(settings, 'STORE_CONFIGS'):
             '_bundled_unit_price_{}'.format(currency.lower()),
             '_upsell_message_{}'.format(currency.lower()),
             '_applied_message_{}'.format(currency.lower()),
+            '_applied_upsell_message_{}'.format(currency.lower()),
         ]
 else:
     MULTI_CURRENCY_FIELDS.extend([
         'bundled_unit_price',
         'upsell_message',
         'applied_message',
+        'applied_upsell_message',
     ])
 
 
