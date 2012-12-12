@@ -56,7 +56,11 @@ class JoshRadioInput(widgets.RadioInput):
         else:
             label_for = ''
         choice_label = conditional_escape(force_unicode(self.choice_label))
-        return mark_safe(u'%s<label%s>%s</label>' % (self.tag(), label_for, choice_label))
+        return mark_safe(u'%s<label%s %s>%s</label>' % (
+                self.tag(),
+                label_for,
+                'class="is_long"' if len(choice_label) > 5 else '',
+                choice_label))
 
 class ScheduleForSyncWidget(widgets.CheckboxInput):
     def render(self, name, value, attrs=None):
