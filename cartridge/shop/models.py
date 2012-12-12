@@ -957,6 +957,7 @@ class Cart(models.Model):
             sku = item.sku
             mc_variation = max(mc_variations, key=lambda x: sku == x.sku)
             item.unit_price = mc_variation.price(currency)
+            item.bundle_unit_price = item.unit_price
             item.discount_unit_price = item.unit_price
             item.bundle_quantity = 0
             should_discount = all([
@@ -969,14 +970,18 @@ class Cart(models.Model):
                     item.unit_price,
                     currency
                 )
+
             _bundle_title, bundle_quantity, bundle_unit_price, bundlable = \
               bundle_collection[mc_variation.bundle_discount_id]
-            if bundle_quantity:
+            should_bundle = all([
+                bundle_quantity,
+                not mc_variation.on_sale(currency),
+                not mc_variation.is_marked_down(currency),
+            ])
+            if should_bundle:
                 item.bundle_unit_price = bundle_unit_price / bundle_quantity
-            else:
-                item.bundle_unit_price = item.unit_price
+                bundlable.extend([item] * item.quantity)
 
-            bundlable.extend([item] * item.quantity)
 
         # Bundle things up as much as we can. Note: Just
         # because we could bundle something doesn't mean
