@@ -232,7 +232,8 @@ def _discount_data(request, discount_form):
 
     data = {
        'error_message': ' '.join(list(itertools.chain.from_iterable(discount_form.errors.values()))),
-       'total_price':  updated_context['order_total'],
+        'discount_total': updated_context['discount_total'],
+        'total_price':  updated_context['order_total'],
        'shipping_total': updated_context['shipping_total'],
     }
     return simplejson.dumps(data, cls=DjangoJSONEncoder)

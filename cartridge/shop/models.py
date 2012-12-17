@@ -652,6 +652,7 @@ class Order(models.Model):
     shipping_total = fields.MoneyField(_("Shipping total"))
     item_total = fields.MoneyField(_("Item total"))
     discount_code = fields.DiscountCodeField(_("Discount code"), blank=True)
+    discount_total = fields.MoneyField(_("Discount total"))
     total = fields.MoneyField(_("Order total"))
     transaction_id = CharField(_("Transaction ID"), max_length=255, null=True,
                                blank=True)
@@ -678,7 +679,7 @@ class Order(models.Model):
 
     # These are fields that are stored in the session. They're copied to
     # the order in setup() and removed from the session in complete().
-    session_fields = ("shipping_type", "shipping_total", "tax_total")
+    session_fields = ("shipping_type", "shipping_total", "discount_total", "tax_total")
 
     class Meta:
         verbose_name = _("Order")
@@ -716,6 +717,8 @@ class Order(models.Model):
         # Note that tax_total is not a persistent model field at this stage
         if hasattr(self, 'tax_total') and self.tax_total is not None:
             self.total += self.tax_total
+        if self.discount_total is not None:
+            self.total -= self.discount_total
         self.currency = session_currency(request)
         self.save()  # We need an ID before we can add related items.
         for item in request.cart:

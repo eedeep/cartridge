@@ -3,6 +3,17 @@
 	{% if discount_total or shipping_total %}
 	<div><label>{% trans "Sub total" %}:</label> {{ item_total|currency }}</div>
 	{% endif %}
+       {% if discount_total %}
+       <div>
+           <label>
+           {% if discount_type %}
+           {{ discount_type }}:
+           {% else %}
+           {% trans "Discount" %}:
+           {% endif %}
+           </label>{{ discount_total|currency }}
+       </div>
+       {% endif %}
 	{% if shipping_total %}
 	<div>
 	    <label>
