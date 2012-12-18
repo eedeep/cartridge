@@ -26,14 +26,13 @@ request.
     upsell_products = lambda *a, **k: []
     total_quantity = lambda *a, **k: 0
     total_price = lambda *a, **k: 0
-    calculate_discount = lambda *a, **k: None
+    calculate_discount = lambda *a, **k: (None, None)
     has_no_stock = lambda *a, **k: []
     has_items = lambda *a, **k: False
     __int__ = lambda *a, **k: 0
     __iter__ = lambda *a, **k: iter([])
     switch_currency = lambda *a: None
     remove_item = lambda *a: None
-    bundling_data = lambda *a: {}
 
     def __init__(self, request):
         """

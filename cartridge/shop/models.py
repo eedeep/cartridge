@@ -887,6 +887,12 @@ class Cart(models.Model):
         """
         return sum([item.total_price for item in self])
 
+    def non_discount_price_total(self):
+        """
+        Template helper function - sum of all non discounted costs of item quantities.
+        """
+        return sum([item.non_discount_price for item in self])
+
     def skus(self):
         """
         Returns a list of skus for items in the cart. Used by
@@ -908,6 +914,11 @@ class Cart(models.Model):
 
     def calculate_discount(self, discount, currency):
         # Discount applies to cart total if not product specific.
+        discount_total = Decimal("0.00")
+        discount_deduct = False
+        min_purchase = False
+        specific_products = True
+        discount_skus = []
         if discount:
             specific_products = discount.products.count() or \
               discount.categories.count()
@@ -919,11 +930,6 @@ class Cart(models.Model):
                     currency.lower()))
             min_purchase = getattr(discount, "_min_purchase_{}".format(
                     currency.lower()))
-        else:
-            discount_deduct = False
-            min_purchase = False
-            specific_products = True
-            discount_skus = []
 
         from multicurrency.models import MultiCurrencyProductVariation
         mc_variations = MultiCurrencyProductVariation.objects.filter(
@@ -969,10 +975,13 @@ class Cart(models.Model):
                 not specific_products or sku in discount_skus
             ])
             if should_discount:
-                item.discount_unit_price -= discount.calculate(
-                    item.unit_price,
-                    currency
-                )
+                if discount_deduct and min_purchase <= self.non_discount_price_total:
+                    discount_total = discount_deduct
+                else:
+                    item.discount_unit_price -= discount.calculate(
+                        item.unit_price,
+                        currency
+                    )
 
             _bundle_title, bundle_quantity, bundle_unit_price, bundlable = \
               bundle_collection[mc_variation.bundle_discount_id]
@@ -987,7 +996,7 @@ class Cart(models.Model):
 
 
         # Bundle things up as much as we can. Note: Just
-        # because we could bundle something doesn't mean
+        # Because we could bundle something doesn't mean
         # we should. It possible that it's cheaper for the
         # customer not bundle or use a discount code instead.
         for title, quantity, bundle_price, bundlable in \
@@ -1019,7 +1028,7 @@ class Cart(models.Model):
         for item in self:
             item.save()
 
-        return bundle_collection
+        return bundle_collection, discount_total
 
     def has_no_stock(self):
         "Return the products of the cart with no stock"

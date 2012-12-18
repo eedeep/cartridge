@@ -416,7 +416,7 @@ class DiscountForm(forms.ModelForm):
                 set_shipping(self._request, settings.FREE_SHIPPING, 0)
             self._request.session["free_shipping"] = discount.free_shipping
             self._request.session["discount_code"] = discount.code
-            self._request.session["discount_total"] = total
+            self._request.session["discount_total"] = discount_total
             if self._request.session.has_key('order'):
                 self._request.session['order']['discount_code'] = discount.code
         else:
