@@ -5,6 +5,7 @@ from decimal import Decimal
 from operator import mul
 
 from django.core.urlresolvers import reverse
+from django.contrib.sites.models import Site
 from django.test import TestCase
 from django.test.utils import override_settings
 from mezzanine.conf import settings
@@ -27,6 +28,7 @@ class ShopTests(TestCase):
         """
         Set up test data - category, product and options.
         """
+        Site().save()
         self._published = {"status": CONTENT_STATUS_PUBLISHED}
         self._category = Category.objects.create(**self._published)
         self._product = Product.objects.create(**self._published)
