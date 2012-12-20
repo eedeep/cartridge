@@ -450,7 +450,8 @@ class OrderForm(FormsetForm, DiscountForm):
     subscribe = forms.BooleanField(required=False, initial=False,
         label=_("Please subscribe me."))
     gender = forms.ChoiceField(label="Gender",
-                               choices=make_choices(['Female', 'Male']))
+                               choices=make_choices(['Female', 'Male']),
+                               required=False)
     subscription_options = forms.MultipleChoiceField(label="Please subscribe me to",
                                widget=forms.CheckboxSelectMultiple,
                                 required=False)
