@@ -602,6 +602,12 @@ class ProductVariation(Priced, ProductVariationAbstract):
         """
         return "%s-%s" % (self.master_item_code, self.options()[0])
 
+    @property
+    def colour_name(self):
+        """Returns the colour string from ProductOptions
+        for use in templates"""
+        return ProductOption.colourName(self.option1)
+
 class Order(models.Model):
 
     billing_detail_first_name = CharField(_("First name"), max_length=32)
