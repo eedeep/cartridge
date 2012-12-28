@@ -1,3 +1,5 @@
+import unittest
+from itertools import repeat
 
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -15,6 +17,7 @@ from cartridge.shop.models import Product, ProductOption, ProductVariation
 from cartridge.shop.models import Category, Cart, Order, DiscountCode
 from cartridge.shop.checkout import CHECKOUT_STEPS
 
+from multicurrency.models import MultiCurrencyCart
 
 TEST_STOCK = 5
 TEST_PRICE = Decimal("20")
@@ -372,3 +375,102 @@ class ShopTests(TestCase):
         warnings.extend(run_pep8_for_package("cartridge"))
         if warnings:
             self.fail("Syntax warnings!\n\n%s" % "\n".join(warnings))
+
+@unittest.skipUnless(hasattr(settings, 'DEFAULT_CURRENCY') and
+                     settings.DEFAULT_CURRENCY == 'AUD',
+                 'Looks like local_settings.py is symlinked to the incorrect '
+                 'local_settings_<region>.py file.')
+class DiscountTests(TestCase):
+    """
+    Test discount codes and bundled products
+    """
+
+    def setUp(self, ):
+        """
+        Set up product and discounts
+        """
+        # create products
+        for option_type in settings.SHOP_OPTION_TYPE_CHOICES:
+            for i in range(10):
+                name = "test%s" % i
+                ProductOption.objects.create(type=option_type[0], name=name)
+        products = dict(
+            fp=Product.objects.create(
+                **{"status": CONTENT_STATUS_PUBLISHED,
+                   'master_item_code': 1,
+                   '_unit_price_aud': Decimal('12'),}),
+            md=Product.objects.create(
+                **{"status": CONTENT_STATUS_PUBLISHED,
+                   'master_item_code': 2,
+                   '_unit_price_aud': Decimal('9'),
+                   '_was_price_aud': Decimal('15')}))
+        for product in products.values():
+            ProductVariation.objects.create(_unit_price_aud=product._unit_price_aud,
+                                            _was_price_aud=product._was_price_aud,
+                                            sku=product.master_item_code,
+                                            product=product,
+                                            option1='test1',
+                                            option2='test1')
+
+        # create discount
+        discount_percent = DiscountCode.objects.create(code='p1',
+                                                       discount_percent=Decimal('30'),
+                                                       _min_purchase_aud=Decimal('10'))
+        discount_deduct = DiscountCode.objects.create(code='d1',
+                                                      _discount_deduct_aud=Decimal('10'),
+                                                      _min_purchase_aud=Decimal('10'))
+        discount_exact = DiscountCode.objects.create(code='e1',
+                                                     _discount_exact_aud=Decimal('10'),
+                                                     _min_purchase_aud=Decimal('10'))
+
+        # test scenarios
+        discounts = dict(
+            percent=[dict(discount=discount_percent,
+                          products=[products['fp']],
+                          total=Decimal('8.4')),
+                     dict(discount=discount_percent,
+                          products=[products['md']],
+                          total=Decimal('9')),
+                     dict(discount=discount_percent,
+                          products=[products['md'], products['fp']],
+                          total=Decimal('9') + Decimal('8.4'))],
+            deduct=[dict(discount=discount_deduct,
+                         products=[products['fp']],
+                         total=Decimal('2')),
+                    dict(discount=discount_deduct,
+                         products=[products['md'], products['md'], ],
+                         total=Decimal('18')),
+                    dict(discount=discount_deduct,
+                         products=[products['md'], products['fp']],
+                         total=Decimal('9') + Decimal('2'))],
+            exact=[dict(discount=discount_exact,
+                         products=[products['fp']],
+                         total=Decimal('2')),
+                   dict(discount=discount_exact,
+                        products=[products['md'], products['md']],
+                        total=Decimal('8')),
+                   dict(discount=discount_exact,
+                        products=[products['md'], products['fp']],
+                        total=Decimal('9') + Decimal('2'))])
+        self.discounts = discounts
+
+    def test_discount(self):
+        # create cart
+        cart = MultiCurrencyCart.objects.from_request(self.client)
+        try:
+            cart.add_item(1, 2)
+        except:
+            pass
+        cart = MultiCurrencyCart.objects.all()[0]
+
+        # run tests
+        for scenarios in self.discounts.values():
+            for scenario in scenarios:
+                for product in scenario['products']:
+                    cart.add_item(product.variations.all()[0], 1)
+                discount = cart.calculate_discount(scenario['discount'], 'aud')
+                total = cart.total_price()
+                self.assertEqual(total - discount, scenario['total'])
+                # clear cart
+                for item in cart.items.all():
+                    item.delete()
