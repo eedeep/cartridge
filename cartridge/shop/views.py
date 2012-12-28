@@ -37,6 +37,8 @@ from multicurrency.utils import \
 from multicurrency.templatetags.multicurrency_tags import \
     local_currency, formatted_price, _order_totals
 
+from cottonon_shop.forms import WishlistEmailForm
+
 #TODO remove cartwatcher imports from cartridge
 try:
     from cartwatcher.promotions.models import Promotion
@@ -146,7 +148,6 @@ def wishlist(request, template="shop/wishlist.html"):
     Display the wishlist and handle removing items from the wishlist and
     adding them to the cart.
     """
-
     skus = request.wishlist
     error = None
     if request.method == "POST":
@@ -174,11 +175,16 @@ def wishlist(request, template="shop/wishlist.html"):
             return response
 
     # Remove skus from the cookie that no longer exist.
-    published_products = Product.objects.published(for_user=request.user)
-    f = {"product__in": published_products, "sku__in": skus}
-    wishlist = ProductVariation.objects.filter(**f).select_related(depth=1)
-    wishlist = sorted(wishlist, key=lambda v: skus.index(v.sku))
-    context = {"wishlist_items": wishlist, "error": error}
+   
+    wishlist = []
+    try:
+        wishlist = ProductVariation.objects.select_related(depth=1).filter(
+                                                    sku__in=skus)
+    except Exception:
+        print "Variation does not exist"
+        pass
+
+    context = {"wishlist_items": wishlist, "error": error, "emailForm": WishlistEmailForm}
     response = render(request, template, context)
     if len(wishlist) < len(skus):
         skus = [variation.sku for variation in wishlist]
