@@ -15,14 +15,134 @@ from mezzanine.utils.tests import run_pyflakes_for_package
 from mezzanine.utils.tests import run_pep8_for_package
 
 from cartridge.shop.models import Product, ProductOption, ProductVariation
-from cartridge.shop.models import Category, Cart, Order, DiscountCode
+from cartridge.shop.models import Category, Cart, Order, DiscountCode, BundleDiscount
 from cartridge.shop.checkout import CHECKOUT_STEPS
-
 from multicurrency.models import MultiCurrencyCart
 
 TEST_STOCK = settings.STOCK_THRESHOLD + 1
 TEST_PRICE = Decimal("20")
 
+@unittest.skipUnless(hasattr(settings, 'DEFAULT_CURRENCY') and
+                     settings.DEFAULT_CURRENCY == 'AUD',
+                 'Looks like local_settings.py is symlinked to the incorrect '
+                 'local_settings_<region>.py file.')
+class BundleTests(TestCase):
+    """
+    Test bundled products
+    """
+    def setUp(self, ):
+        """
+        Set up product and discounts
+        """
+        # create products
+        for option_type in settings.SHOP_OPTION_TYPE_CHOICES:
+            for i in range(10):
+                name = "test%s" % i
+                ProductOption.objects.create(type=option_type[0], name=name)
+        products = dict(
+            fp1=Product.objects.create(
+                **{"status": CONTENT_STATUS_PUBLISHED,
+                   'master_item_code': 1,
+                   '_unit_price_aud': Decimal('12'),}),
+            fp2=Product.objects.create(
+                **{"status": CONTENT_STATUS_PUBLISHED,
+                   'master_item_code': 3,
+                   '_unit_price_aud': Decimal('20'),}),
+            fp3=Product.objects.create(
+                **{"status": CONTENT_STATUS_PUBLISHED,
+                   'master_item_code': 4,
+                   '_unit_price_aud': Decimal('12'),}),
+            md=Product.objects.create(
+                **{"status": CONTENT_STATUS_PUBLISHED,
+                   'master_item_code': 2,
+                   '_unit_price_aud': Decimal('9'),
+                   '_was_price_aud': Decimal('15')}),)
+        category = Category.objects.create(**{'status': CONTENT_STATUS_PUBLISHED})
+        products['fp3'].categories.add(category)
+        for product in products.values():
+            ProductVariation.objects.create(_unit_price_aud=product._unit_price_aud,
+                                            _was_price_aud=product._was_price_aud,
+                                            sku=product.master_item_code,
+                                            product=product,
+                                            option1='test1',
+                                            option2='test1')
+
+        # create bundles
+        bundle = BundleDiscount.objects.create(active=True,
+                                               _title_aud='Test',
+                                               quantity=2,
+                                               _bundled_unit_price_aud=20)
+        bundle.products.add(products['fp1'], products['fp2'], products['fp3'])
+        bundle.apply()
+
+        bundle2 = BundleDiscount.objects.create(active=True,
+                                                _title_aud='Test',
+                                                quantity=2,
+                                                _bundled_unit_price_aud=20)
+        bundle2.categories.add(category)
+        bundle2.apply()
+
+        # create scenarios
+        self.scenarios = dict(
+            full_price=[
+                dict(bundle=bundle,
+                     products=[products['fp1'], products['fp1'], ],
+                     total=Decimal('20')),
+                dict(bundle=bundle,
+                     products=[products['fp2'], products['fp2'], ],
+                     total=Decimal('20')),
+                dict(bundle=bundle,
+                     products=[products['fp1'], products['fp2'], products['fp2'], ],
+                     total=Decimal('32')),
+                dict(bundle=bundle,
+                     products=[products['fp1'], products['fp2']],
+                     total=Decimal('20')),
+                dict(bundle=bundle,
+                     products=[products['fp1'], products['fp3']],
+                     total=Decimal('20')),
+                dict(bundle=bundle,
+                     products=[products['fp1'], ],
+                     total=Decimal('12')),],
+            mix_products=[
+                dict(bundle=bundle,
+                     products=[products['fp1'], products['md'], ],
+                     total=Decimal('21')),
+                dict(bundle=bundle,
+                     products=[products['md'], ],
+                     total=Decimal('9')),],
+            categories=[
+                dict(bundle=bundle2,
+                     products=[products['fp3'], products['fp3'], ],
+                     total=Decimal('20')),
+                dict(bundle=bundle2,
+                     products=[products['fp3'], products['fp2'], ],
+                     total=Decimal('32')),
+                dict(bundle=bundle2,
+                     products=[products['fp3'], ],
+                     total=Decimal('12')),],
+            )
+
+    def test_bundle(self):
+        # create cart
+        cart = MultiCurrencyCart.objects.from_request(self.client)
+        try:
+            cart.add_item(1, 2)
+        except:
+            pass
+        cart = MultiCurrencyCart.objects.all()[0]
+
+        # run tests
+        for name, scenarios in self.scenarios.items():
+            print 'Running', name
+            for scenario in scenarios:
+                for product in scenario['products']:
+                    cart.add_item(product.variations.all()[0], 1)
+                bundle_collection, discount_total = cart.calculate_discount(None, 'aud')
+                total = cart.total_price()
+                self.assertEqual(total, scenario['total'])
+                # clear cart
+                for item in cart.items.all():
+                    item.delete()
 
 class ShopTests(TestCase):
 
