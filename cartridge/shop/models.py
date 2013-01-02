@@ -554,7 +554,7 @@ class ProductVariation(Priced, ProductVariationAbstract):
             stock = 0
         else:
             stock = self.num_in_stock
-        
+
         stock_pool = self.num_in_stock_pool
         if stock_pool > settings.STOCK_POOL_CUTOFF:
             threshold = settings.STOCK_POOL_THRESHOLD
@@ -884,21 +884,30 @@ class Cart(models.Model):
         from multicurrency.models import MultiCurrencyProductVariation
         discount_deduct = getattr(discount, "_discount_deduct_{}".format(
                 currency.lower()))
+        discount_exact = getattr(discount, "_discount_exact_{}".format(
+                currency.lower()))
         min_purchase = getattr(discount, "_min_purchase_{}".format(
                 currency.lower()))
         for item in self:
+            if not ((specific_products and item.sku in discount_skus) or
+                    not specific_products):
+                continue
+            if discount_exact is not None:
+                total += discount_exact
+                if self.total_price() < total:
+                    total = self.total_price()
+                break
             mc_variation = MultiCurrencyProductVariation.objects.get(sku=item.sku)
             if (mc_variation.on_sale(currency) or
                 mc_variation.is_marked_down(currency)):
                 continue
-            if ((specific_products and item.sku in discount_skus) or
-                not specific_products):
-                if discount_deduct is not None:
-                    if min_purchase and self.total_price > min_purchase:
-                        total += discount_deduct
-                        break
-                else:
-                    total += discount.calculate(item.unit_price, currency) * item.quantity
+
+            if discount_deduct is not None:
+                if min_purchase and self.total_price > min_purchase:
+                    total += discount_deduct
+                    break
+            else:
+                total += discount.calculate(item.unit_price, currency) * item.quantity
 
         return total
 
