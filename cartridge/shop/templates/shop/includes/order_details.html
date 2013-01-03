@@ -45,8 +45,8 @@
     	<td align="right" valign="top">{{ item.unit_price|currency }}</td>
     	<td align="right" valign="top">{{ item.quantity }}</td>
     	<td align="right" valign="top">{{ item.non_discounted_price|currency }}
-		{% if item.bundle_quantity %}<br/> Bundling {{ item.bundle_quantity }}@{{item.bundle_unit_price|currency}}: {{ item.bundle_discount|currency }}{% endif %}
-		{% if item.discount_unit_price != item.unit_price %}<br/> Discount code: {{ item.discount_code_discount|currency }}{% endif %}</td>
+		{% if item.bundle_quantity %}<br/> Bundle Discount '{{ item.bundle_title }}': {{ item.bundle_discount|currency }}{% endif %}
+		{% if item.discount_unit_price != item.unit_price %}<br/> Discount code '{{ order.discount_code }}': {{ item.discount_code_discount|currency }}{% endif %}</td>
 	</tr>
 	{% endfor %}
 	<tr>

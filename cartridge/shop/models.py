@@ -963,6 +963,7 @@ class Cart(models.Model):
             item.bundle_unit_price = item.unit_price
             item.discount_unit_price = item.unit_price
             item.bundle_quantity = 0
+            item.bundle_title = None
             should_discount = all([
                 not mc_variation.on_sale(currency),
                 not mc_variation.is_marked_down(currency),
@@ -977,7 +978,7 @@ class Cart(models.Model):
                         currency
                     )
 
-            _bundle_title, bundle_quantity, bundle_unit_price, bundlable = \
+            bundle_title, bundle_quantity, bundle_unit_price, bundlable = \
               bundle_collection[mc_variation.bundle_discount_id]
             should_bundle = all([
                 bundle_quantity,
@@ -985,6 +986,7 @@ class Cart(models.Model):
                 not mc_variation.is_marked_down(currency),
             ])
             if should_bundle:
+                item.bundle_title = bundle_title
                 item.bundle_unit_price = bundle_unit_price / bundle_quantity
                 bundlable.extend([item] * item.quantity)
 
@@ -1080,6 +1082,7 @@ class SelectedProduct(models.Model):
         default=Decimal("0"),
         help_text="The total price of the items including bundling and discount codes.",
     )
+    bundle_title = CharField(max_length=100, blank=True, null=True)
 
     class Meta:
         abstract = True

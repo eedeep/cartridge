@@ -147,15 +147,13 @@ def _order_email_context(order):
     return order_context
 
 
-def send_order_email(request, order, order_items=None):
+def send_order_email(request, order):
     """
     Send order receipt email on successful order.
     """
     settings.use_editable()
     order_context = _order_email_context(order)
     order_context["request"] = request
-    if order_items:
-        order_context['order_items'] = order_items
     send_mail_template(_("Order Receipt"), "shop/email/order_receipt",
         settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
         context=order_context)
