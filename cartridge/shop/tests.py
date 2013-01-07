@@ -399,6 +399,7 @@ class DiscountTests(TestCase):
         """
         Set up product and discounts
         """
+        Site().save()
         # create products
         for option_type in settings.SHOP_OPTION_TYPE_CHOICES:
             for i in range(10):
