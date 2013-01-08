@@ -175,7 +175,7 @@ def wishlist(request, template="shop/wishlist.html"):
             return response
 
     # Remove skus from the cookie that no longer exist.
-   
+
     wishlist = []
     try:
         wishlist = ProductVariation.objects.select_related(depth=1).filter(
@@ -296,6 +296,7 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     context["shipping_form"] = shipping_form
 
     context["extends_template"] = extends_template
+    context['CURRENT_REGION'] = getattr(settings, 'CURRENT_REGION', '')
 
     if request.is_ajax():
         return HttpResponse(_discount_data(request, discount_form), "application/javascript")

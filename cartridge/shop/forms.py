@@ -401,7 +401,10 @@ class DiscountForm(forms.ModelForm):
                 self._discount = discount
             except DiscountCode.DoesNotExist:
                 set_discount(self._request, None) #remove discount
-                error = _("The discount code entered is invalid.")
+                if getattr(settings, 'CURRENT_REGION', '') == 'US':
+                    error = _("The coupon entered is invalid.")
+                else:
+                    error = _("The discount code entered is invalid.")
                 raise forms.ValidationError(error)
         return code
 
