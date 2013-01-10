@@ -1030,7 +1030,7 @@ class Cart(models.Model):
         discount_total = Decimal("0.00")
         if deductable_items and (not min_purchase or
                                  self.total_price() >= min_purchase):
-            if discount_total:
+            if discount_deduct:
                 discount_total = discount_deduct
             elif discount_exact:
                 discount_total = discount_exact
