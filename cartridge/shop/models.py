@@ -967,7 +967,7 @@ class Cart(models.Model):
             item.discount_unit_price = item.unit_price
             item.bundle_quantity = 0
             item.bundle_title = None
-            should_discount = all([
+            should_discount = discount_exact or all([
                 not mc_variation.on_sale(currency),
                 not mc_variation.is_marked_down(currency),
                 not specific_products or sku in discount_skus
