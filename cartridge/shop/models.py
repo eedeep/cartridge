@@ -1033,7 +1033,7 @@ class Cart(models.Model):
             if discount_total:
                 discount_total = discount_deduct
             elif discount_exact:
-                discount_total = self.total_price() - discount_exact
+                discount_total = discount_exact
 
         return bundle_collection, discount_total
 
