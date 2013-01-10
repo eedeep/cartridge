@@ -910,6 +910,7 @@ class Cart(models.Model):
         # Discount applies to cart total if not product specific.
         deductable_items = False
         discount_deduct = False
+        discount_exact = False
         min_purchase = False
         specific_products = True
         discount_skus = []
@@ -921,6 +922,8 @@ class Cart(models.Model):
             )
             discount_skus = discount_variations.values_list("sku", flat=True)
             discount_deduct = getattr(discount, "_discount_deduct_{}".format(
+                    currency.lower()))
+            discount_exact = getattr(discount, "_discount_exact_{}".format(
                     currency.lower()))
             min_purchase = getattr(discount, "_min_purchase_{}".format(
                     currency.lower()))
@@ -970,7 +973,7 @@ class Cart(models.Model):
                 not specific_products or sku in discount_skus
             ])
             if should_discount:
-                if discount_deduct:
+                if discount_deduct or discount_exact:
                     deductable_items = True
                 else:
                     item.discount_unit_price -= discount.calculate(
@@ -1026,8 +1029,11 @@ class Cart(models.Model):
 
         discount_total = Decimal("0.00")
         if deductable_items and (not min_purchase or
-                                 self.total_price >= min_purchase):
-            discount_total = discount_deduct
+                                 self.total_price() >= min_purchase):
+            if discount_total:
+                discount_total = discount_deduct
+            elif discount_exact:
+                discount_total = self.total_price() - discount_exact
 
         return bundle_collection, discount_total
 
