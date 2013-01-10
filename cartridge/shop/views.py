@@ -232,7 +232,7 @@ def _discount_data(request, discount_form):
 
     data = {
        'error_message': ' '.join(list(itertools.chain.from_iterable(discount_form.errors.values()))),
-        'discount_total': updated_context['discount_total'],
+        'discount_total': '-' + updated_context['discount_total'],
         'total_price':  updated_context['order_total'],
        'shipping_total': updated_context['shipping_total'],
     }
@@ -273,7 +273,6 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     cart_formset = CartItemFormSet(instance=request.cart)
     shipping_form = _shipping_form_for_cart(request, currency)
     discount_form = _discount_form_for_cart(request)
-
     valid = False
     if request.method == "POST":
         if request.POST.get("update_cart"):
