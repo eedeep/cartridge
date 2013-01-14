@@ -141,7 +141,7 @@ class Product(Displayable, Priced, RichText):
     rating = RatingField(verbose_name=_("Rating"))
     featured = models.BooleanField(_("Featured Product"), default=False)
     in_stock = models.BooleanField(_("In Stock"), default=False)
-    ranking = models.IntegerField(default=500)
+    ranking = models.IntegerField(default=250)
 
     product_colours = CharField(_("Available colours"), blank=True, default="", max_length=500)
     product_sizes = CharField(_("Available colours"), blank=True, default="", max_length=255)
