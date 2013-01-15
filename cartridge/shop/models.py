@@ -251,7 +251,9 @@ class Product(Displayable, Priced, RichText):
                              (923, 'rubi'),
                              (847, 'kids'),
                              (860, 'men'),
-                             (899, 'women')):
+                             (899, 'women'),
+                             (1757, 'girls'),
+                             (1771, 'guys')):
             if cat_id in categories:
                 sizes = [x.upper() for x in self.available_sizes]
                 if (len(sizes)==1 and
