@@ -692,7 +692,7 @@ class ProductVariationAdminForm(forms.ModelForm):
         super(ProductVariationAdminForm, self).__init__(*args, **kwargs)
         if "instance" in kwargs:
             product = kwargs["instance"].product
-            qs = self.fields["image"].queryset.filter(product=product)
+            qs = self.fields["image"].queryset.filter(product=product).exclude(file__iendswith='gif')
             self.fields["image"].queryset = qs
 
 

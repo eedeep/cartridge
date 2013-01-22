@@ -105,11 +105,8 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     context = {
         "product": product,
         "extends_template": extends_template,
-        "images": product.reduced_image_set(variations),
         "variations": variations,
         "variations_json": variations_json,
-        "has_available_variations": any(v.has_price(currency) for v in variations),
-        "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
         }
 
@@ -135,6 +132,9 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     elif len(variations) > 0:
         variation = variations[0]
         cached_context = dict(
+            images=product.reduced_image_set(variations),
+            has_available_variations=any(v.has_price(currency) for v in variations),
+            related=product.related_products.published(for_user=request.user),
             keywords=','.join([unicode(x) for x in product.keywords.all()]),
             size_chart=product.size_chart,
             has_price=variation.has_price(currency),
