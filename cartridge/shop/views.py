@@ -112,7 +112,7 @@ def product(request, slug, template="shop/product.html", extends_template="base.
 
     if product.bundle_discount_id:
         try:
-            bundle_discount = BundleDiscount.objects.active().get(
+            bundle_discount = BundleDiscount.objects.active(currency).get(
                 id=product.bundle_discount_id
             )
         except BundleDiscount.DoesNotExist:

@@ -221,6 +221,21 @@ class DiscountManager(Manager):
         return self.filter(valid_from, valid_to, active=True)
 
 
+class BundleDiscountManager(DiscountManager):
+
+    def active(self, currency):
+        """
+        Items flagged as active and in valid date range if date(s) are
+        specified and price information are present.
+        """
+        active = super(BundleDiscountManager, self).active()
+        return active.filter(**{
+             'quantity__gte': 2,
+             '_bundled_unit_price_{}__isnull'.format(currency.lower()): False,
+             '_title_{}__isnull'.format(currency.lower()): False,
+        })
+
+
 class DiscountCodeManager(DiscountManager):
 
     def get_valid(self, code, cart, currency):
