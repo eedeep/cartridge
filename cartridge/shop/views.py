@@ -29,12 +29,12 @@ from cartridge.shop import checkout
 from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, ShippingForm
 from cartridge.shop.models import Product, ProductVariation, Order, Cart
 from cartridge.shop.models import DiscountCode, BundleDiscount
-from cartridge.shop.utils import recalculate_discount, sign
+from cartridge.shop.utils import recalculate_discount, sign, \
+     shipping_form_for_cart, discount_form_for_cart
 
 #TODO remove multicurrency imports from cartridge
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
-from multicurrency.utils import \
-    session_currency, default_local_freight_type, is_local_shipping_option
+from multicurrency.utils import session_currency
 from multicurrency.templatetags.multicurrency_tags import \
     local_currency, formatted_price, _order_totals
 
@@ -105,17 +105,14 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     context = {
         "product": product,
         "extends_template": extends_template,
-        "images": product.reduced_image_set(variations),
         "variations": variations,
         "variations_json": variations_json,
-        "has_available_variations": any(v.has_price(currency) for v in variations),
-        "related": product.related_products.published(for_user=request.user),
         "add_product_form": add_product_form
         }
 
     if product.bundle_discount_id:
         try:
-            bundle_discount = BundleDiscount.objects.active().get(
+            bundle_discount = BundleDiscount.objects.active(currency).get(
                 id=product.bundle_discount_id
             )
         except BundleDiscount.DoesNotExist:
@@ -135,6 +132,9 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     elif len(variations) > 0:
         variation = variations[0]
         cached_context = dict(
+            images=product.reduced_image_set(variations),
+            has_available_variations=any(v.has_price(currency) for v in variations),
+            related=product.related_products.published(for_user=request.user),
             keywords=','.join([unicode(x) for x in product.keywords.all()]),
             size_chart=product.size_chart,
             has_price=variation.has_price(currency),
@@ -238,32 +238,6 @@ def _discount_data(request, discount_form):
     }
     return simplejson.dumps(data, cls=DjangoJSONEncoder)
 
-def _discount_form_for_cart(request):
-    discount_code = request.POST.get("discount_code", None)
-    if discount_code is None:
-        discount_code = request.session.get("discount_code", None)
-    return DiscountForm(request, {'discount_code': discount_code})
-
-def _shipping_form_for_cart(request, currency):
-    """
-    If the user is submitting the form, get the shipping option from the
-    form post. Otherwise, try to grab it from the session in order to
-    set it to whatever it is currently (eg in the case of an ajax request
-    coming through to verify the discount code, this is what we want to
-    happen). If its not set in the session, then set it to the default
-    shipping type for the current session currency.
-    If the shipping type is not available as an option (eg set to FREE SHIPPING)
-    then use the default, on the assumption that the free shipping value
-    will be re-applied by set_shipping (which takes discount codes into
-    consideration)
-    """
-    shipping_option = request.POST.get("shipping_option", None)
-    if not shipping_option:
-        shipping_option = request.session.get("shipping_type")
-        if shipping_option is None or not is_local_shipping_option(currency, shipping_option) or \
-            shipping_option == settings.FREE_SHIPPING:
-            shipping_option = default_local_freight_type(currency).id
-    return ShippingForm(request, currency, {"id": shipping_option})
 
 def cart(request, template="shop/cart.html", extends_template="base.html"):
     """
@@ -271,8 +245,8 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     """
     currency = session_currency(request)
     cart_formset = CartItemFormSet(instance=request.cart)
-    shipping_form = _shipping_form_for_cart(request, currency)
-    discount_form = _discount_form_for_cart(request)
+    shipping_form = shipping_form_for_cart(request, currency)
+    discount_form = discount_form_for_cart(request)
     valid = False
     if request.method == "POST":
         if request.POST.get("update_cart"):

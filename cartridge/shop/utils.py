@@ -9,7 +9,8 @@ except ImportError:
 
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.translation import ugettext as _
-
+from multicurrency.utils import \
+    session_currency, default_local_freight_type, is_local_shipping_option
 from mezzanine.conf import settings
 
 class EmptyCart(object):
@@ -61,18 +62,52 @@ def make_choices(choices):
     return zip(choices, choices)
 
 
+def discount_form_for_cart(request):
+    from cartridge.shop.forms import DiscountForm
+    discount_code = request.POST.get("discount_code", None)
+    if discount_code is None:
+        discount_code = request.session.get("discount_code", None)
+    return DiscountForm(request, {'discount_code': discount_code})
+
+
+def shipping_form_for_cart(request, currency):
+    """
+    If the user is submitting the form, get the shipping option from the
+    form post. Otherwise, try to grab it from the session in order to
+    set it to whatever it is currently (eg in the case of an ajax request
+    coming through to verify the discount code, this is what we want to
+    happen). If its not set in the session, then set it to the default
+    shipping type for the current session currency.
+    If the shipping type is not available as an option (eg set to FREE SHIPPING)
+    then use the default, on the assumption that the free shipping value
+    will be re-applied by set_shipping (which takes discount codes into
+    consideration)
+    """
+    from cartridge.shop.forms import ShippingForm
+    shipping_option = request.POST.get("shipping_option", None)
+    if not shipping_option:
+        shipping_option = request.session.get("shipping_type")
+        if shipping_option is None or not is_local_shipping_option(currency, shipping_option) or \
+            shipping_option == settings.FREE_SHIPPING:
+            shipping_option = default_local_freight_type(currency).id
+    return ShippingForm(request, currency, {"id": shipping_option})
+
+
 def recalculate_discount(request):
     """
     Updates an existing discount code when the cart is modified.
     """
-    from cartridge.shop.forms import DiscountForm
+    currency = session_currency(request)
+
     from cartridge.shop.models import Cart
     # Rebind the cart to request since it's been modified.
     request.cart = Cart.objects.from_request(request)
-    discount_code = request.session.get("discount_code", "")
-    discount_form = DiscountForm(request, {"discount_code": discount_code})
+    discount_form = discount_form_for_cart(request)
     discount_form.is_valid()
     discount_form.set_discount()
+    shipping_form = shipping_form_for_cart(request, currency)
+    if shipping_form.is_valid():
+        shipping_form.set_shipping()
 
 def set_discount(request, discount_total):
     """

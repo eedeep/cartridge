@@ -940,7 +940,7 @@ class Cart(models.Model):
                 if mc_variation.bundle_discount_id
         )
 
-        active_bundles = BundleDiscount.objects.active().filter(
+        active_bundles = BundleDiscount.objects.active(currency).filter(
             id__in=bundle_ids
         ).values_list(
             'id',
@@ -984,7 +984,10 @@ class Cart(models.Model):
                     )
 
             bundle_title, bundle_quantity, bundle_unit_price, bundlable = \
-              bundle_collection[mc_variation.bundle_discount_id]
+              bundle_collection.get(
+                  mc_variation.bundle_discount_id,
+                  fall_back_collection
+            )
             should_bundle = all([
                 bundle_quantity,
                 not mc_variation.on_sale(currency),
@@ -1332,7 +1335,7 @@ class BundleDiscount(models.Model):
     products = models.ManyToManyField("Product", blank=True)
     categories = models.ManyToManyField("Category", blank=True)
 
-    objects = managers.DiscountManager()
+    objects = managers.BundleDiscountManager()
 
     class Meta:
         verbose_name = _("BundleDiscount")

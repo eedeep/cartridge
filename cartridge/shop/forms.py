@@ -309,27 +309,43 @@ class ShippingForm(forms.Form):
         """
         shipping_option = self.cleaned_data["id"]
         discount_code = self._request.session.get("discount_code", "")
+        cart = self._request.cart
+        currency = self._currency
+
         try:
             discount = DiscountCode.objects.get_valid(
                 code=discount_code,
-                cart=self._request.cart,
-                currency=self._currency,
+                cart=cart,
+                currency=currency,
             )
-            if shipping_option == settings.REST_OF_WORLD and discount.free_shipping:
-                discount = None
         except DiscountCode.DoesNotExist:
             discount = None
-        if shipping_option is not None:
+
+        store_config = settings.STORE_CONFIGS[currency]
+        free_shipping_threshold = store_config.free_shipping_threshold
+
+        valid_shipping = shipping_option is not None and \
+          shipping_option != settings.REST_OF_WORLD
+
+        valid_discount = discount and discount.free_shipping
+
+        valid_cart = free_shipping_threshold is not None and \
+          cart.total_price() > free_shipping_threshold
+
+        if valid_shipping and (valid_discount or valid_cart):
+            shipping_option = settings.FREE_SHIPPING
+            shipping_cost = 0
+            free_shipping = True
+        else:
             shipping_cost = Decimal(
                 get_freight_type_for_id(
                     session_currency(self._request), shipping_option
                 ).charge
             )
-            set_shipping(self._request, shipping_option, shipping_cost)
-            if discount:
-                if discount.free_shipping:
-                    set_shipping(self._request, settings.FREE_SHIPPING, 0)
-                self._request.session["free_shipping"] = discount.free_shipping
+            free_shipping = False
+
+        set_shipping(self._request, shipping_option, shipping_cost)
+        self._request.session["free_shipping"] = free_shipping
 
 
 class DiscountForm(forms.ModelForm):
@@ -692,7 +708,7 @@ class ProductVariationAdminForm(forms.ModelForm):
         super(ProductVariationAdminForm, self).__init__(*args, **kwargs)
         if "instance" in kwargs:
             product = kwargs["instance"].product
-            qs = self.fields["image"].queryset.filter(product=product)
+            qs = self.fields["image"].queryset.filter(product=product).exclude(file__iendswith='gif')
             self.fields["image"].queryset = qs
 
 
