@@ -688,6 +688,12 @@ class Order(models.Model):
         verbose_name_plural = _("Orders")
         ordering = ("-id",)
 
+    def __init__(self, *args, **kwargs):
+        super(Order, self).__init__(*args, **kwargs)
+        if self.total:
+            self.refresh_tax_total()
+
+
     def save(self, *args, **kwargs):
         #custom CO save
         self.has_rms_order_id = len(self.rms_order_id)>0
@@ -791,24 +797,22 @@ class Order(models.Model):
     invoice.allow_tags = True
     invoice.short_description = ""
 
-    def receipt_order_items(self):
+    def refresh_tax_total(self):
+        """Attempts to recalculate the tax_total, a non-presistent
+        attribute on the order class from the other information
+        available.
         """
-        Return a simplified data structure containing the essential
-        order item details required for rending the order receipt
-        email templates. The reason for doing this is that celery
-        running asychronously does not play nicely with retreiving
-        related model instaces off of the order (ie, order.items.all())
-        - we end up just getting an empty list, which is obviously
-        not what we want.
-        """
-        items = []
-        for i in self.items.all():
-            items.append({
-                'quantity': i.quantity,
-                'description': i.description,
-                'unit_price': i.unit_price,
-            })
-        return items
+        tax_total = self.total
+        tax_total -= self.item_total
+
+        if self.discount_total:
+            tax_total += self.discount_total
+
+        if self.shipping_total:
+            tax_total -= self.shipping_total
+
+        if tax_total:
+            self.tax_total = tax_total
 
 
 class Cart(models.Model):
