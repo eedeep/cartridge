@@ -169,8 +169,16 @@ class Product(Displayable, Priced, RichText):
         verbose_name_plural = _("Products")
         ordering = ("ranking", "title")
 
+
+    def published_related_product_count(self):
+        return self.related_products.filter(
+            status=CONTENT_STATUS_PUBLISHED,
+            available=True,
+        ).count()
+
     def categories_str(self):
         return ', '.join(self.categories.all().values_list('title', flat=True))
+
     def tags_str(self):
         return ', '.join(self.tags.all().values_list('name', flat=True))
 
