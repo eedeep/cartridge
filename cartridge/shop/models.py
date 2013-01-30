@@ -150,7 +150,7 @@ class Product(Displayable, Priced, RichText):
         _("Stock Last Synced"), null=True,
         help_text="When stock for this product was last synced from RMS."
     )
-    related_products = models.ManyToManyField("self", blank=True)
+    related_products = models.ManyToManyField("self", blank=True, symmetrical=False)
     upsell_products = models.ManyToManyField("self", blank=True)
     rating = RatingField(verbose_name=_("Rating"))
     featured = models.BooleanField(_("Featured Product"), default=False)
