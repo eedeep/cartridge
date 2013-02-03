@@ -230,7 +230,7 @@ class BundleDiscountManager(DiscountManager):
         """
         active = super(BundleDiscountManager, self).active()
         return active.filter(**{
-             'quantity__gte': 2,
+             'quantity__gte': 1,
              '_bundled_unit_price_{}__isnull'.format(currency.lower()): False,
              '_title_{}__isnull'.format(currency.lower()): False,
         })

@@ -269,14 +269,14 @@ else:
 
 
 class BundleDiscountAdmin(admin.ModelAdmin):
-    list_display = ["title", "active", "quantity"] + MULTI_CURRENCY_FIELDS + \
+    list_display = ["title", "active", "quantity", "upsell_product"] + MULTI_CURRENCY_FIELDS + \
                     ["valid_from", "valid_to"]
     list_editable = ("active", "valid_from", "valid_to")
     model = BundleDiscount
     filter_horizontal = ("categories", "products")
     formfield_overrides = {MoneyField: {"widget": MoneyWidget}}
     fieldsets = (
-        (None, {"fields": ["title", "active", "quantity"] + MULTI_CURRENCY_FIELDS}),
+        (None, {"fields": ["title", "active", "quantity", "upsell_product"] + MULTI_CURRENCY_FIELDS}),
         (_("Apply to product and/or products in categories"),
             {"fields": ("products", "categories")}),
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),

@@ -150,7 +150,7 @@ class Product(Displayable, Priced, RichText):
         _("Stock Last Synced"), null=True,
         help_text="When stock for this product was last synced from RMS."
     )
-    related_products = models.ManyToManyField("self", blank=True)
+    related_products = models.ManyToManyField("self", blank=True, symmetrical=False)
     upsell_products = models.ManyToManyField("self", blank=True)
     rating = RatingField(verbose_name=_("Rating"))
     featured = models.BooleanField(_("Featured Product"), default=False)
@@ -169,8 +169,16 @@ class Product(Displayable, Priced, RichText):
         verbose_name_plural = _("Products")
         ordering = ("ranking", "title")
 
+
+    def published_related_product_count(self):
+        return self.related_products.filter(
+            status=CONTENT_STATUS_PUBLISHED,
+            available=True,
+        ).count()
+
     def categories_str(self):
         return ', '.join(self.categories.all().values_list('title', flat=True))
+
     def tags_str(self):
         return ', '.join(self.tags.all().values_list('name', flat=True))
 
@@ -951,19 +959,30 @@ class Cart(models.Model):
             '_title_{}'.format(currency.lower()),
             'quantity',
             '_bundled_unit_price_{}'.format(currency.lower()),
+            'upsell_product',
         ).distinct()
 
         # Collect all the sku which we could bundle and so we can aggregate
         # their quantities. Keep track of the discount code and bundle
         # discount which could be applied so we can try and maximise (or
         # minimise) the total discount.
+        #
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
+        #
+        # The upsell dict will map product codes to quantity for upsell.
+        #
+        # Assume that upsell products can't be on sale, discounted
+        # or open to bundling. Otherwise the logic is going to
+        # get crazy in here. Also assume the each bundle will have
+        # different upsell product. That is, upsell products can't
+        # be reused.
+        upsell_dict = {}
         bundle_collection = {
-            id_: (title, quantity, bundle_unit_price, [])
-            for id_, title, quantity, bundle_unit_price in active_bundles
+            id_: (title, quantity, bundle_unit_price, upsell_product, [])
+            for id_, title, quantity, bundle_unit_price, upsell_product  in active_bundles
         }
-        fall_back_collection = ('', 0, 0, [])
+        fall_back_collection = ('', 0, 0, '', [])
         bundle_collection[None] = fall_back_collection
         for item in self:
             sku = item.sku
@@ -978,6 +997,8 @@ class Cart(models.Model):
                 not mc_variation.is_marked_down(currency),
                 not specific_products or sku in discount_skus
             ])
+
+            discountable = False
             if should_discount:
                 if discount_deduct or discount_exact:
                     deductable_items = True
@@ -986,8 +1007,18 @@ class Cart(models.Model):
                         item.unit_price,
                         currency
                     )
+                    discountable = True
 
-            bundle_title, bundle_quantity, bundle_unit_price, bundlable = \
+            upsellable = all([
+                mc_variation.bundle_discount_id is None,
+                not discountable,
+                not mc_variation.on_sale(currency),
+                not mc_variation.is_marked_down(currency),
+            ])
+            if upsellable:
+                upsell_dict[mc_variation.option1] = item.quantity
+
+            bundle_title, bundle_quantity, bundle_unit_price, upsell_product, bundlable = \
               bundle_collection.get(
                   mc_variation.bundle_discount_id,
                   fall_back_collection
@@ -1002,18 +1033,29 @@ class Cart(models.Model):
                 item.bundle_unit_price = bundle_unit_price / bundle_quantity
                 bundlable.extend([item] * item.quantity)
 
-
         # Bundle things up as much as we can. Note: Just
         # Because we could bundle something doesn't mean
         # we should. It possible that it's cheaper for the
         # customer not bundle or use a discount code instead.
-        for title, quantity, bundle_price, bundlable in \
+        #
+        # As we 'upsell' items we update the upsell dict to
+        # ensure we don't double discount
+        for title, quantity, bundle_price, upsell_product, bundlable in \
           bundle_collection.values():
 
-            if not all([quantity, title, bundle_price]):
+            if not all([quantity, title, bundle_price is not None]):
                 # Filter out out fall_back_collection and
                 # any other bundles that have invalid values.
                 continue
+
+            # Determine how many items in the cart match the upsell_product
+            # condition. Note if there is no upsell_product this is irrelevant.
+            upsell_quantity = None
+            if upsell_product:
+                upsell_quantity = 0
+                for key, value in upsell_dict.items():
+                    if key.startswith(upsell_product):
+                        upsell_quantity += value
 
             bundlable.sort(key=lambda x: x.discount_unit_price, reverse=True)
             potential_bundles = iter_bundle(
@@ -1027,9 +1069,14 @@ class Cart(models.Model):
                 discounted_price = sum(
                     item.discount_unit_price for item in potential_bundle
                 )
-                keep_bundling &= discounted_price > bundle_price
+
+                keep_bundling &= not upsell_product or upsell_quantity > 0
                 keep_bundling &= len(potential_bundle) == quantity
+                keep_bundling &= discounted_price > bundle_price
                 if keep_bundling:
+                    if upsell_product:
+                        upsell_quantity -= 1
+
                     for item in potential_bundle:
                         item.bundle_quantity += 1
 
@@ -1338,6 +1385,7 @@ class BundleDiscount(models.Model):
     bundled_unit_price = fields.MoneyField(_("Bundled unit price"))
     products = models.ManyToManyField("Product", blank=True)
     categories = models.ManyToManyField("Category", blank=True)
+    upsell_product = CharField(_("Upsell Product"), max_length=100, blank=True, null=True)
 
     objects = managers.BundleDiscountManager()
 
