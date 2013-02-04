@@ -27,7 +27,7 @@ from mezzanine.utils.views import render, set_cookie
 
 from cartridge.shop import checkout
 from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, ShippingForm
-from cartridge.shop.models import Product, ProductVariation, Order, Cart
+from cartridge.shop.models import Product, ProductVariation, Order, Cart, Category
 from cartridge.shop.models import DiscountCode, BundleDiscount
 from cartridge.shop.utils import recalculate_discount, sign, \
      shipping_form_for_cart, discount_form_for_cart
@@ -132,6 +132,7 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     elif len(variations) > 0:
         variation = variations[0]
         cached_context = dict(
+            root_category=root_category(product.categories),
             images=product.reduced_image_set(variations),
             has_available_variations=any(v.has_price(currency) for v in variations),
             related=product.related_products.published(for_user=request.user),
@@ -150,6 +151,18 @@ def product(request, slug, template="shop/product.html", extends_template="base.
         if upsell_promotions.count()>0:
             context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
+
+def root_category(categories):
+    main_categories = [x.lower() for x in categories.filter(
+            parent_id=None,
+            content_model='category').values_list('slug', flat=True)]
+    if len(main_categories) == 1:
+        return main_categories[0]
+    else:
+        for x in main_categories:
+            if x in [u'typo', u'kids', u'men', u'women', u'body']:
+                return x
+    return None
 
 def generate_cache_key(request):
     ctx = hashlib.md5()
