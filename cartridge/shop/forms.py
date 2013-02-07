@@ -324,8 +324,9 @@ class ShippingForm(forms.Form):
         store_config = settings.STORE_CONFIGS[currency]
         free_shipping_threshold = store_config.free_shipping_threshold
 
-        valid_shipping = shipping_option is not None and \
-          shipping_option != settings.REST_OF_WORLD
+
+        valid_shipping = shipping_option == settings.FREE_SHIPPING or \
+          is_default_shipping_option(currency, shipping_option)
 
         valid_discount = discount and discount.free_shipping
 
