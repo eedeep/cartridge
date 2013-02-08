@@ -331,7 +331,7 @@ class ShippingForm(forms.Form):
         valid_discount = discount and discount.free_shipping
 
         valid_cart = free_shipping_threshold is not None and \
-          cart.total_price() > free_shipping_threshold
+          cart.total_price() >= free_shipping_threshold
 
         if valid_shipping and (valid_discount or valid_cart):
             shipping_option = settings.FREE_SHIPPING
