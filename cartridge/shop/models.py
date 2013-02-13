@@ -998,7 +998,6 @@ class Cart(models.Model):
                 not specific_products or sku in discount_skus
             ])
 
-            discountable = False
             if should_discount:
                 if discount_deduct or discount_exact:
                     deductable_items = True
@@ -1007,11 +1006,10 @@ class Cart(models.Model):
                         item.unit_price,
                         currency
                     )
-                    discountable = True
 
             upsellable = all([
                 mc_variation.bundle_discount_id is None,
-                not discountable,
+                item.discount_unit_price == item.unit_price,
                 not mc_variation.on_sale(currency),
                 not mc_variation.is_marked_down(currency),
             ])
