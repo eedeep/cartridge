@@ -3,6 +3,8 @@ from django.conf.urls.defaults import patterns, url
 
 
 urlpatterns = patterns("cartridge.shop.views",
+    url("^return-from-checkout-with-paypal/$", "return_from_checkout_with_paypal", name="return_from_checkout_with_paypal"),
+    url("^cancel-checkout-with-paypal/$", "cancel_checkout_with_paypal", name="cancel_checkout_with_paypal"),
     url("^product/(?P<slug>.*)/$", "product", name="shop_product"),
     url("^modal/(?P<slug>.*)/$", "product", {"template":"shop/product_modal.html"}, name="shop_product_modal"),
     url("^wishlist/$", "wishlist", name="shop_wishlist"),

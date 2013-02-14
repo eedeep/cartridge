@@ -740,6 +740,8 @@ class Order(models.Model):
         for item in request.cart:
             product_fields = [f.name for f in SelectedProduct._meta.fields]
             #CO custom code to copy promotion details from cartitem to orderitems if available
+            # This 'promotion' stuff is a remnant from the aborted "cart watcher'...
+            # ...dont know why it is here.
             product_fields.extend([f.name for f in item._meta.fields if "promotion" in f.name])
             item = dict([(f, getattr(item, f)) for f in product_fields])
             self.items.create(**item)
@@ -821,6 +823,18 @@ class Order(models.Model):
 
         if tax_total:
             self.tax_total = tax_total
+
+    def grand_discount_total(self):
+        grand_discount_total = Decimal(0)
+        for item in self.items.all():
+            grand_discount_total += item.total_line_discount
+        return grand_discount_total
+
+    def undiscounted_item_total(self):
+        undiscounted_item_total = Decimal(0)
+        for item in self.items.all():
+            undiscounted_item_total += item.unit_price * item.quantity
+        return undiscounted_item_total
 
 
 class Cart(models.Model):
@@ -1177,6 +1191,11 @@ class SelectedProduct(models.Model):
         attributed to this SelectedProduct."""
         return  (self.quantity - self.bundle_quantity) * \
            (self.discount_unit_price - self.unit_price)
+
+    @property
+    def total_line_discount(self):
+        return self.discount_code_discount + self.bundle_discount
+
 
 class CartItem(SelectedProduct):
 
