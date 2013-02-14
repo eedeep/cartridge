@@ -324,13 +324,18 @@ class ShippingForm(forms.Form):
         store_config = settings.STORE_CONFIGS[currency]
         free_shipping_threshold = store_config.free_shipping_threshold
 
-        valid_shipping = shipping_option is not None and \
-          shipping_option != settings.REST_OF_WORLD
+
+        valid_shipping = shipping_option == settings.FREE_SHIPPING or \
+          is_default_shipping_option(currency, shipping_option)
 
         valid_discount = discount and discount.free_shipping
 
+        discount_total = self._request.session.get(
+            'discount_total',
+            Decimal("0.00")
+        )
         valid_cart = free_shipping_threshold is not None and \
-          cart.total_price() > free_shipping_threshold
+          (cart.total_price() - discount_total) >= free_shipping_threshold
 
         if valid_shipping and (valid_discount or valid_cart):
             shipping_option = settings.FREE_SHIPPING
@@ -457,14 +462,14 @@ class OrderForm(FormsetForm, DiscountForm):
         label=_("Remember my address for next time"))
     terms = forms.BooleanField(required=True, initial=False,
         label=_("I agree to Terms and Conditions"))
-    card_name = forms.CharField(label=_("Cardholder name"))
-    card_type = forms.ChoiceField(widget=JoshRadioSelect,
+    card_name = forms.CharField(label=_("Cardholder name"), required=False)
+    card_type = forms.ChoiceField(required=False, widget=JoshRadioSelect,
         choices=make_choices(settings.SHOP_CARD_TYPES))
-    card_number = forms.CharField()
+    card_number = forms.CharField(required=False)
     card_expiry_month = forms.ChoiceField(
         choices=make_choices(["%02d" % i for i in range(1, 13)]))
-    card_expiry_year = forms.ChoiceField()
-    card_ccv = forms.CharField(label="CCV", help_text=_("A security code, "
+    card_expiry_year = forms.ChoiceField(required=False)
+    card_ccv = forms.CharField(label="CCV", required=False, help_text=_("A security code, "
         "usually the last 3 digits found on the back of your card."))
     subscribe = forms.BooleanField(required=False, initial=False,
         label=_("Please subscribe me."))
@@ -484,7 +489,7 @@ class OrderForm(FormsetForm, DiscountForm):
                    f.name.startswith("shipping_detail")] +
                    ["additional_instructions", "discount_code"])
 
-    def __init__(self, request, step, data=None, initial=None, errors=None):
+    def __init__(self, request, step, data=None, initial=None, errors=None, hidden=None):
         """
         Handle setting shipping field values to the same as billing
         field values in case JavaScript is disabled, hiding fields for
@@ -512,20 +517,21 @@ class OrderForm(FormsetForm, DiscountForm):
         self.fields["discount_code"].widget = forms.HiddenInput()
 
         # Determine which sets of fields to hide for each checkout step.
-        hidden = None
-        if settings.SHOP_CHECKOUT_STEPS_SPLIT:
-            if first:
-                # Hide the cc fields for billing/shipping if steps are split.
+        if not hidden:
+            hidden = None
+            if settings.SHOP_CHECKOUT_STEPS_SPLIT:
+                if first:
+                    # Hide the cc fields for billing/shipping if steps are split.
+                    hidden = lambda f: f.startswith("card_")
+                elif step == checkout.CHECKOUT_STEP_PAYMENT:
+                    # Hide the non-cc fields for payment if steps are split.
+                    hidden = lambda f: not f.startswith("card_")
+            elif not settings.SHOP_PAYMENT_STEP_ENABLED:
+                # Hide all the cc fields if payment step is not enabled.
                 hidden = lambda f: f.startswith("card_")
-            elif step == checkout.CHECKOUT_STEP_PAYMENT:
-                # Hide the non-cc fields for payment if steps are split.
-                hidden = lambda f: not f.startswith("card_")
-        elif not settings.SHOP_PAYMENT_STEP_ENABLED:
-            # Hide all the cc fields if payment step is not enabled.
-            hidden = lambda f: f.startswith("card_")
-        if settings.SHOP_CHECKOUT_STEPS_CONFIRMATION and last:
-            # Hide all fields for the confirmation step.
-            hidden = lambda f: True
+            if settings.SHOP_CHECKOUT_STEPS_CONFIRMATION and last:
+                # Hide all fields for the confirmation step.
+                hidden = lambda f: True
         if hidden is not None:
             for field in self.fields:
                 if hidden(field):
@@ -598,6 +604,13 @@ class OrderForm(FormsetForm, DiscountForm):
             raise forms.ValidationError('Country does not exist')
         return country
 
+    def validate_mandatory_card_fields(self, required_fields):
+        missing = []
+        for field in required_fields:
+            if not self.cleaned_data[field]:
+                missing.append(field)
+        return missing 
+        
     def clean(self):
         """
         Raise ``ValidationError`` if any errors have been assigned
@@ -605,6 +618,14 @@ class OrderForm(FormsetForm, DiscountForm):
         """
         if self._checkout_errors:
             raise forms.ValidationError(self._checkout_errors)
+        
+        if self.cleaned_data['card_type'] == 'CREDIT_CARD':
+            if not self.cleaned_data['card_number']:
+                if self.cleaned_data['step'] == 2:
+                    missing = self.validate_mandatory_card_fields(['card_number', 'card_type', 'card_name', 'card_ccv'])
+                    for field in missing:
+                        self.errors[field] = self.error_class(['This field is required.'])
+                        del self.cleaned_data[field]
         return self.cleaned_data
 
 

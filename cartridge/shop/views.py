@@ -3,7 +3,6 @@ import itertools
 import logging
 from urllib2 import urlopen, URLError
 from decimal import Decimal
-from datetime import datetime
 
 logger = logging.getLogger("cottonon")
 
@@ -18,6 +17,7 @@ from django.utils import simplejson
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_exempt
 from django.core.cache import cache
 from django.db.models import Sum, Q
 
@@ -27,18 +27,26 @@ from mezzanine.utils.views import render, set_cookie
 
 from cartridge.shop import checkout
 from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, ShippingForm
-from cartridge.shop.models import Product, ProductVariation, Order, Cart
+from cartridge.shop.models import Product, ProductVariation, Order, Cart, Category
 from cartridge.shop.models import DiscountCode, BundleDiscount
 from cartridge.shop.utils import recalculate_discount, sign, \
      shipping_form_for_cart, discount_form_for_cart
 
 #TODO remove multicurrency imports from cartridge
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
-from multicurrency.utils import session_currency
+from multicurrency.utils import \
+    session_currency, default_local_freight_type, is_local_shipping_option,\
+    is_valid_shipping_choice, get_freight_type_for_id
 from multicurrency.templatetags.multicurrency_tags import \
     local_currency, formatted_price, _order_totals
 
 from cottonon_shop.forms import WishlistEmailForm
+from cottonon_shop.paypal_handler import \
+    set_express_checkout, log_no_order_for_token, PayPalFlowError, \
+    get_express_checkout_details, do_express_checkout_payment, \
+    build_order_form_data, paypal_confirmation_response, get_order_from_token, \
+    log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
+
 
 #TODO remove cartwatcher imports from cartridge
 try:
@@ -132,6 +140,7 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     elif len(variations) > 0:
         variation = variations[0]
         cached_context = dict(
+            root_category=root_category(product.categories),
             images=product.reduced_image_set(variations),
             has_available_variations=any(v.has_price(currency) for v in variations),
             related=product.related_products.published(for_user=request.user),
@@ -150,6 +159,18 @@ def product(request, slug, template="shop/product.html", extends_template="base.
         if upsell_promotions.count()>0:
             context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
+
+def root_category(categories):
+    main_categories = [x.lower() for x in categories.filter(
+            parent_id=None,
+            content_model='category').values_list('slug', flat=True)]
+    if len(main_categories) == 1:
+        return main_categories[0]
+    else:
+        for x in main_categories:
+            if x in [u'typo', u'kids', u'men', u'women', u'body']:
+                return x
+    return None
 
 def generate_cache_key(request):
     ctx = hashlib.md5()
@@ -269,11 +290,15 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
                 shipping_form.set_shipping()
             valid = True if discount_valid and shipping_valid else False
             if not request.is_ajax() and valid:
+                if request.POST.has_key('checkout-with-paypal'):
+                    return redirect(get_checkout_with_paypal_redirect_url(request))
                 return redirect('shop_checkout')
         if valid:
             if request.is_ajax():
                 return HttpResponse(_discount_data(request, discount_form), "application/javascript")
             else:
+                if request.POST.has_key('checkout-with-paypal'):
+                    return redirect(get_checkout_with_paypal_redirect_url(request))
                 return redirect("shop_checkout")
 
     context = {"cart_formset": cart_formset}
@@ -332,6 +357,143 @@ def finalise_order(transaction_id, request, order,
     return response
 
 
+def get_checkout_with_paypal_redirect_url(request):
+    """Get the URL which the user will be redirected to when they click
+    the "Checkout With Paypal" button.
+    """
+    order = Order()
+    order.discount_code = request.session.get('discount_code', '')
+    order.setup(request)
+    redirect_to_url = set_express_checkout(order)
+    return redirect_to_url
+
+
+def cancel_checkout_with_paypal(request):
+    """When the user clicks the "cancel" button in PayPal, 
+    they get redirected here, where we delete the order for
+    their token, log the cancellation to the payments log and
+    redirect them back to the cart page.
+    """
+    token = request.GET.get('token')
+    cancelled_order = get_order_from_token(token)
+    log_cancelled_order(cancelled_order)
+    cancelled_order.delete()
+    return redirect('shop_cart')
+
+
+@never_cache
+def return_from_checkout_with_paypal(request):
+    """
+    Find the order for the paypal express checkout token and
+    then call get_express_checkout_details to complete the next
+    step in the 'checkout with paypal' flow.
+    """
+    token = request.GET.get('token')
+    payer_id = request.GET.get('PayerID')
+    order = get_order_from_token(token)
+
+    everything = None
+    everything_except_billing_shipping = lambda f: not (f.startswith('shipping_') or f.startswith('billing_'))
+    if request.POST:
+        shipping_type_id = request.POST.get('id')
+        shipping_detail_country = request.POST.get('shipping_detail_country')
+        discount_code = request.POST.get("discount_code", None)
+        order_form_data = {k: v for k, v in request.POST.iteritems()}
+        what_to_hide = everything_except_billing_shipping
+    else:
+        express_checkout_details = get_express_checkout_details(order)
+        if express_checkout_details['SHIPPINGCALCULATIONMODE'] == 'FlatRate':
+            shipping_type_id = express_checkout_details['SHIPPINGOPTIONNAME']
+        else:
+            shipping_type_id = express_checkout_details['SHIPPINGOPTIONNAME'].split('|')[0].strip()
+        shipping_detail_country = express_checkout_details['PAYMENTREQUEST_0_SHIPTOCOUNTRYNAME'].upper()
+        discount_code = order.discount_code
+        order_form_data = build_order_form_data(express_checkout_details, order)
+        what_to_hide = everything
+
+    shipping_type = get_freight_type_for_id(order.currency, shipping_type_id)
+    # Need to stash the shipping_type in the session here cos sadly that's 
+    # where the discount form grabs it from in order to validate whether the 
+    # discount code is valid for the shipping type
+    request.session['shipping_type'] = shipping_type.id
+    shipping_form = ShippingForm(request, order.currency, initial={'id': shipping_type.id})
+    if not is_valid_shipping_choice(order.currency, shipping_type.id, shipping_detail_country):
+        shipping_form.errors['id'] = 'The chosen shipping option is invalid for the destination country.' 
+
+    # We need the discount form too because discount code validity depends on
+    # shipping type chosen, which depends on shipping address
+    discount_form = DiscountForm(request, {'discount_code': discount_code})
+    discount_form.is_valid()
+
+    form_class = get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)
+    form_args = dict(
+        request=request,
+        step=1,
+        initial=order_form_data,
+        data=order_form_data,
+        hidden=what_to_hide
+    )
+    order_form = form_class(**form_args)
+
+    if shipping_form.errors or not order_form.is_valid() or not discount_form.is_valid():
+        # Here we display the confirmation page, editable, so they can fix the errors
+        form_args['hidden'] = everything_except_billing_shipping
+        order_form = form_class(**form_args)
+        order_form.is_valid()
+        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, order_form_data['billing_detail_email'])
+
+    # If an item is out of stock, then for now we just abort the transaction
+    no_stock = []
+    cart = request.cart
+    for cart_item in cart.has_no_stock():
+        no_stock += [unicode(cart_item.variation())]
+        cart_item.delete()
+    if len(no_stock) != 0:
+        delattr(cart, '_cached_items')
+        log_no_stock_order_aborted(order, no_stock)
+        order.delete()
+        return render(request, 'shop/paypal_aborted.html')
+
+    request.session["order"] = dict(order_form.cleaned_data)
+    request.session['shipping_total'] = Decimal(shipping_type.charge)
+    tax_handler(request, order_form)
+    order_form.set_discount()
+
+    if request.POST:
+        # So now we try to actually do the payment
+        for field_name, value in order_form.cleaned_data.iteritems():
+            if hasattr(order, field_name) and value:
+                setattr(order, field_name, value)
+        order.shipping_total = shipping_type.charge
+        order.payment_gateway_transaction_type = 'PAYPAL'
+        order.save()
+        try:
+            express_payment_details = do_express_checkout_payment(order, payer_id)
+            response = finalise_order(
+                express_payment_details['PAYMENTINFO_0_TRANSACTIONID'],
+                request,
+                order,
+                order_form.cleaned_data
+            )
+            return response
+        except (PaypalApiCallException, checkout.CheckoutError) as e:
+            # Revert product stock changes and delete order
+            for item in request.cart:
+                try:
+                    variation = ProductVariation.objects.get(sku=item.sku)
+                except ProductVariation.DoesNotExist:
+                    pass
+                else:
+                    amount = item.quantity
+                    variation.num_in_stock += amount
+                    variation.num_in_stock_pool += amount
+            order.delete()
+            return render(request, 'shop/paypal_aborted.html')
+    else:
+        # Here we display the confirmation page, uneditable
+        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, order_form_data['billing_detail_email'])
+
+
 @never_cache
 def checkout_steps(request, extends_template="base.html"):
     """
@@ -367,6 +529,9 @@ def checkout_steps(request, extends_template="base.html"):
         step -= 1
         form = form_class(request, step, initial=initial)
     elif request.method == "POST" and cart.has_items():
+        # This is the execution path when the user clicks the 'proceed
+        # to payment' button on the billing/shipping details page
+        # and also when they click 'next' on the payment form page
         sensitive_card_fields = ("card_number", "card_expiry_month",
                                  "card_expiry_year", "card_ccv")
         form = form_class(request, step, initial=initial, data=data)
@@ -384,8 +549,17 @@ def checkout_steps(request, extends_template="base.html"):
                 if field in request.session["order"]:
                     del request.session["order"][field]
 
+            # If they are going to 'pay with paypal' then we redirect them
+            if form.cleaned_data['card_type'].lower() == 'paypal' and step == checkout.CHECKOUT_STEP_PAYMENT:
+                order = form.save(commit=False)
+                order.setup(request)
+                redirect_to_url = set_express_checkout(order, address_override='1')
+                return redirect(redirect_to_url)
+
             # FIRST CHECKOUT STEP - handle shipping and discount code.
             if step == checkout.CHECKOUT_STEP_FIRST:
+                # This happens on the 'proceed to payment' post
+                # on the billing/shipping details page too
                 try:
                     billship_handler(request, form)
                     tax_handler(request, form)

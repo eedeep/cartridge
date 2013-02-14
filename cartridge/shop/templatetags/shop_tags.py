@@ -93,6 +93,14 @@ def your_cart(context):
     """
     return _order_totals(context)
 
+@register.inclusion_tag("shop/paypal_your_cart.html", takes_context=True)
+def paypal_your_cart(context):
+    """
+    HTML version of order_totals, for paypal confirmation page.
+    """
+    return _order_totals(context)
+
+
 @register.inclusion_tag("shop/includes/order_totals.txt", takes_context=True)
 def order_totals_text(context):
     """
