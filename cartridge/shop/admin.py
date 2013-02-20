@@ -276,19 +276,12 @@ class VerboseManyToManyRawIdWidget(ManyToManyRawIdWidget):
         str_values = []
         key = self.rel.get_related_field().name
         i = 1
-        for v in values:
-            try:
-                obj = self.rel.to._default_manager.using(
-                    self.db).get(**{key: v})
-                # manage unicode error
-                x = smart_unicode(obj)
-                # no HTML
-                str_values += ['<div style="display: inline-block; width:250px">%s</div>' %
-                               (escape(x), )]
-                if i % 3 == 0:
-                    str_values += ['<br>']
-            except self.rel.to.DoesNotExist:
-                str_values += [u'???']
+        for product in Product.objects.filter(id__in=values).order_by('title'):
+            str_values += ['<div style="display: inline-block; width:250px">%s '
+                           '<a href="" data-id="%s">[X]</a></div>' %
+                           (product, product.id)]
+            if i % 3 == 0:
+                str_values += ['<br>']
             i += 1
         return u'<div id="selected_products">%s</div>' % (''.join(str_values))
 
