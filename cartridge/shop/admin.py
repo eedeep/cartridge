@@ -94,7 +94,7 @@ class ProductAdmin(DisplayableAdmin):
     search_fields = ("title", "content", "categories__title")
     inlines = (ProductImageAdmin, ProductVariationAdmin)
     form = ProductAdminForm
-    fieldsets = product_fieldsets
+#    fieldsets = product_fieldsets
 
     def __init__(self, model, admin_site):
         super(ProductAdmin, self).__init__(model, admin_site)
