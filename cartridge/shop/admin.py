@@ -1,8 +1,12 @@
 
 from copy import deepcopy
 
+from django.conf import settings
 from django.contrib import admin
+from django.contrib.admin.widgets import ManyToManyRawIdWidget
 from django.db.models import ImageField
+from django.utils.encoding import smart_unicode
+from django.utils.html import escape
 from django.utils.translation import ugettext_lazy as _
 
 from mezzanine.core.admin import DisplayableAdmin, TabularDynamicInlineAdmin
@@ -17,8 +21,6 @@ from cartridge.shop.models import ProductVariation, ProductOption, Order
 from cartridge.shop.models import OrderItem, Sale, DiscountCode, BundleDiscount
 
 from cartridge_extras.forms import CategoryAdminForm
-
-from django.conf import settings
 
 # Lists of field names.
 option_fields = [f.name for f in ProductVariation.option_fields()]
@@ -268,9 +270,24 @@ else:
     ])
 
 
+class VerboseManyToManyRawIdWidget(ManyToManyRawIdWidget):
+    def label_for_value(self, value):
+        values = value.split(',')
+        str_values = []
+        key = self.rel.get_related_field().name
+        i = 1
+        for product in Product.objects.filter(id__in=values).order_by('title'):
+            str_values += ['<div style="display: inline-block; width:250px">%s '
+                           '<a href="" data-id="%s">[X]</a></div>' %
+                           (product, product.id)]
+            if i % 3 == 0:
+                str_values += ['<br>']
+            i += 1
+        return u'<div id="selected_products">%s</div>' % (''.join(str_values))
+
 class BundleDiscountAdmin(admin.ModelAdmin):
     list_display = ["title", "active", "quantity", "upsell_product"] + MULTI_CURRENCY_FIELDS + \
-                    ["valid_from", "valid_to"]
+        ["valid_from", "valid_to"]
     list_editable = ("active", "valid_from", "valid_to")
     model = BundleDiscount
     filter_horizontal = ("categories", "products")
@@ -281,6 +298,16 @@ class BundleDiscountAdmin(admin.ModelAdmin):
             {"fields": ("products", "categories")}),
         (_("Valid for"), {"fields": (("valid_from", "valid_to"),)}),
     )
+    raw_id_fields = ('products', )
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        x = super(BundleDiscountAdmin,
+                  self).formfield_for_manytomany(db_field, request, **kwargs)
+        if db_field.name in self.raw_id_fields:
+            db = kwargs.get('using')
+            x.widget = VerboseManyToManyRawIdWidget(
+                db_field.rel, self.admin_site, using=db)
+        return x
 
     def save_related(self, request, form, formsets, change):
         """
