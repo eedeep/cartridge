@@ -29,7 +29,6 @@ from cartridge.shop.models import Cart, CartItem, Order, DiscountCode
 from cartridge.shop.utils import make_choices, set_locale, set_shipping, set_discount
 
 from cartridge_deps.widgets import FasterFilteredSelectMultiple
-
 from cartridge.taggit.models import Tag
 
 from countries.models import Country
