@@ -466,7 +466,6 @@ def return_from_checkout_with_paypal(request):
                 setattr(order, field_name, value)
         order.shipping_total = shipping_type.charge
         order.payment_gateway_transaction_type = 'PAYPAL'
-        order.save()
         try:
             express_payment_details = do_express_checkout_payment(order, payer_id)
             response = finalise_order(
@@ -475,6 +474,9 @@ def return_from_checkout_with_paypal(request):
                 order,
                 order_form.cleaned_data
             )
+            # We need to get rid of these magic numbers but this means "PROCESSED"
+            order.status = 2
+            order.save()
             return response
         except (PaypalApiCallException, checkout.CheckoutError) as e:
             # Revert product stock changes and delete order
