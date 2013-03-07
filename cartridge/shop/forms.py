@@ -5,6 +5,7 @@ from itertools import dropwhile, takewhile
 from locale import localeconv
 from re import match
 from decimal import Decimal
+from collections import OrderedDict
 
 from django import forms
 from django.forms import widgets
@@ -149,10 +150,14 @@ class AddProductForm(forms.Form):
                 values = filter(None, set(option_values[i]))
             if values:
                 if name == OPTION_SIZE:
+                    product_options = ProductOption.objects.filter(name__in=values, 
+                        type=i+1).order_by("ranking").values_list("name", flat=True)
+
+                    # Using OrderedDict to make sure items are unique
                     choices = make_choices(
-                        ProductOption.objects.filter(name__in=values,
-                                                     type=i+1).order_by(
-                            "ranking").values_list("name", flat=True))
+                            list(OrderedDict.fromkeys(product_options))
+                    )
+
                     kwargs = {"label":option_labels[i],
                               "choices":[(x[0], x[1]) for x in choices]}
                     kwargs["widget"] = JoshRadioSelect
