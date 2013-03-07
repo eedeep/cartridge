@@ -59,7 +59,6 @@ def make_choices(choices):
     """
     Zips a list with itself for field choices.
     """
-    choices = set(choices)
     return zip(choices, choices)
 
 
