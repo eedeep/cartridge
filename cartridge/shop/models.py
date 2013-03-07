@@ -63,7 +63,7 @@ def iter_bundle(bundle_items, bundle_size):
 
 
 class Category(Page, RichText):
-    """
+    """z
     A category of products on the website.
     """
 
@@ -261,7 +261,8 @@ class Product(Displayable, Priced, RichText):
                              (860, 'men'),
                              (899, 'women'),
                              (1757, 'girls'),
-                             (1771, 'guys')):
+                             (1771, 'guys'),
+                             (1823, 'teen')):
             if cat_id in categories:
                 sizes = [x.upper() for x in self.available_sizes]
                 if (len(sizes)==1 and
