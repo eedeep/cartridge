@@ -103,7 +103,6 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     variations = MultiCurrencyProductVariation.objects.filter(
         id__in=product.variations.all(),
         option1__in=in_stock_colour_codes,
-        image__isnull=False,
     )
 
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
