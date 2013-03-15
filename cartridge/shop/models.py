@@ -177,7 +177,7 @@ class Product(Displayable, Priced, RichText):
         verbose_name_plural = _("Products")
         ordering = ("ranking", "title")
 
-    def recategorise(self, old_cats, new_cats):
+    def recategorise(self, new_cats, old_cats=[]):
         cats_to_retain = []
         for existing_category in self.categories.all():
             if existing_category not in old_cats:
@@ -349,10 +349,11 @@ def remap_rms_categories(sender, **kwargs):
         if hasattr(product, '_old_rms_category'):
             if product._old_rms_category:
                 product.recategorise(
-                    product._old_rms_category.mapped_online_categories.all(),
-                    product.rms_category.mapped_online_categories.all()
+                    product.rms_category.mapped_online_categories.all(),
+                    product._old_rms_category.mapped_online_categories.all()
                 )
-
+            else:
+                product.recategorise(product.rms_category.mapped_online_categories.all())
 
 def product_image_path(instance, filename):
     product_code = instance.product.master_item_code.split('-')[0]
