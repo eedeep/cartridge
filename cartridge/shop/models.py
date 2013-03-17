@@ -17,6 +17,8 @@ from django.core.files.base import ContentFile
 from _mysql_exceptions import OperationalError
 from django.utils import simplejson
 from django.db.utils import DatabaseError
+from django.dispatch import receiver
+from django.db.models.signals import post_save
 
 from mezzanine.conf import settings
 from mezzanine.core.managers import DisplayableManager, PublishedManager
@@ -42,6 +44,7 @@ except ImportError:
 import logging
 splog = logging.getLogger('stockpool.log')
 elog = logging.getLogger('cottonon.errors')
+rms_category_logger = logging.getLogger("rms_category_mapping")
 
 
 #session values
@@ -125,6 +128,8 @@ class Priced(models.Model):
         return Decimal("0")
 
 
+
+
 class Product(Displayable, Priced, RichText):
     """
     Container model for a product that stores information common to
@@ -164,11 +169,31 @@ class Product(Displayable, Priced, RichText):
     objects = DisplayableManager()
     search_fields = ("master_item_code",)
 
+    rms_category = models.ForeignKey("rdws.RmsOrganisationUnit", blank=True, 
+        null=True)
+
     class Meta:
         verbose_name = _("Product")
         verbose_name_plural = _("Products")
         ordering = ("ranking", "title")
 
+    def recategorise(self, new_cats, old_cats=[]):
+        cats_to_retain = []
+        for existing_category in self.categories.all():
+            if existing_category not in old_cats:
+                cats_to_retain.append(existing_category)
+        self.categories.clear()
+        for cat in itertools.chain(cats_to_retain, new_cats):
+            self.categories.add(cat)
+        rms_category_logger.info('For product "{product}" removed these old mapped online'
+            ' categories: {old_mapped_categories} and added these ones:'
+            ' {new_categories_to_map}. Retained these categories as they'
+            ' were outside of any mapping (ie, probably manually assigned):'
+            ' {categories_to_retain}'.format(product=self,
+                old_mapped_categories=old_cats,
+                new_categories_to_map=new_cats,
+                categories_to_retain=cats_to_retain)
+        )
 
     def published_related_product_count(self):
         return self.related_products.filter(
@@ -310,6 +335,25 @@ class Product(Displayable, Priced, RichText):
     admin_thumb.allow_tags = True
     admin_thumb.short_description = ""
 
+
+@receiver(post_save, sender=Product)
+def remap_rms_categories(sender, **kwargs):
+    """
+    If the RMS Category on a product changes, then this signal handler
+    takes care of re-jigging the online category assignment for that
+    product (ie, cascade the RMS Category assignment change via the
+    RMS Category -> Online Category mapping).
+    """
+    if not kwargs['raw']:
+        product = kwargs['instance']
+        if hasattr(product, '_old_rms_category'):
+            if product._old_rms_category:
+                product.recategorise(
+                    product.rms_category.mapped_online_categories.all(),
+                    product._old_rms_category.mapped_online_categories.all()
+                )
+            else:
+                product.recategorise(product.rms_category.mapped_online_categories.all())
 
 def product_image_path(instance, filename):
     product_code = instance.product.master_item_code.split('-')[0]
