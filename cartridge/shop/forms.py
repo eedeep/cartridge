@@ -623,13 +623,12 @@ class OrderForm(FormsetForm, DiscountForm):
         if self._checkout_errors:
             raise forms.ValidationError(self._checkout_errors)
         
-        if self.cleaned_data['card_type'] == 'CREDIT_CARD':
-            if not self.cleaned_data['card_number']:
-                if self.cleaned_data['step'] == 2:
-                    missing = self.validate_mandatory_card_fields(['card_number', 'card_type', 'card_name', 'card_ccv'])
-                    for field in missing:
-                        self.errors[field] = self.error_class(['This field is required.'])
-                        del self.cleaned_data[field]
+        if self.cleaned_data['card_type'].upper() != 'PAYPAL': 
+            if self.cleaned_data['step'] == 2:
+                missing = self.validate_mandatory_card_fields(['card_number', 'card_type', 'card_name', 'card_ccv'])
+                for field in missing:
+                    self.errors[field] = self.error_class(['This field is required.'])
+                    del self.cleaned_data[field]
         return self.cleaned_data
 
 
