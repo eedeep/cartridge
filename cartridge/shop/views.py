@@ -397,10 +397,13 @@ def return_from_checkout_with_paypal(request):
         shipping_type_id = request.POST.get('id')
         shipping_detail_country = request.POST.get('shipping_detail_country')
         discount_code = request.POST.get("discount_code", None)
-        order_form_data = {k: v for k, v in request.POST.iteritems()}
+        order_form_data = {k: v for k, v in request.POST.iteritems() 
+            if not k in ['paypal_email']}
+        paypal_email = request.POST.get('paypal_email')
         what_to_hide = everything_except_billing_shipping
     else:
         express_checkout_details = get_express_checkout_details(order)
+        paypal_email = express_checkout_details['EMAIL']
         if express_checkout_details['SHIPPINGCALCULATIONMODE'] == 'FlatRate':
             shipping_type_id = express_checkout_details['SHIPPINGOPTIONNAME']
         else:
@@ -439,7 +442,7 @@ def return_from_checkout_with_paypal(request):
         form_args['hidden'] = everything_except_billing_shipping
         order_form = form_class(**form_args)
         order_form.is_valid()
-        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, order_form_data['billing_detail_email'])
+        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, paypal_email)
 
     # If an item is out of stock, then for now we just abort the transaction
     no_stock = []
@@ -492,7 +495,7 @@ def return_from_checkout_with_paypal(request):
             return render(request, 'shop/paypal_aborted.html')
     else:
         # Here we display the confirmation page, uneditable
-        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, order_form_data['billing_detail_email'])
+        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, paypal_email)
 
 
 @never_cache
