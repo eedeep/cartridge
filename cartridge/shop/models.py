@@ -182,6 +182,12 @@ class Product(Displayable, Priced, RichText):
     def tags_str(self):
         return ', '.join(self.tags.all().values_list('name', flat=True))
 
+    def categories_array(self):
+        return self.categories.all().values_list('title', flat=True)
+
+    def tags_array(self):
+        return self.tags.all().values_list('name', flat=True)
+
     def __unicode__(self):
         return '%s :: %s' % (self.title, self.master_item_code)
 
