@@ -169,6 +169,12 @@ class Product(Displayable, Priced, RichText):
         verbose_name_plural = _("Products")
         ordering = ("ranking", "title")
 
+    def is_published(self):
+        if self. publish_date > datetime.now() or self.publish_date is None:
+            if self.expiry_date > datetime.now() or self.expiry_date is None:
+                if self.status == CONTENT_STATUS_PUBLISHED:
+                    return True
+        return False
 
     def published_related_product_count(self):
         return self.related_products.filter(
