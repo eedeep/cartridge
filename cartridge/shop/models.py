@@ -35,7 +35,7 @@ from cartridge.shop.regexinv import invert
 
 from multicurrency.utils import session_currency
 
-try: #if south is installed, add a rule to ignore the fake manager field
+try:  # if south is installed, add a rule to ignore the fake manager field
     from south.modelsinspector import add_ignored_fields
     add_ignored_fields(["^cartridge\.taggit\.managers"])
 except ImportError:
@@ -169,8 +169,8 @@ class Product(Displayable, Priced, RichText):
     objects = DisplayableManager()
     search_fields = ("master_item_code",)
 
-    rms_category = models.ForeignKey("rdws.RmsOrganisationUnit", blank=True, 
-        null=True)
+    rms_category = models.ForeignKey("rdws.RmsOrganisationUnit", blank=True,
+                                     null=True)
 
     class Meta:
         verbose_name = _("Product")
@@ -195,6 +195,13 @@ class Product(Displayable, Priced, RichText):
                 categories_to_retain=cats_to_retain)
         )
 
+    def is_published(self):
+        if self. publish_date > datetime.now() or self.publish_date is None:
+            if self.expiry_date > datetime.now() or self.expiry_date is None:
+                if self.status == CONTENT_STATUS_PUBLISHED:
+                    return True
+        return False
+
     def published_related_product_count(self):
         return self.related_products.filter(
             status=CONTENT_STATUS_PUBLISHED,
@@ -207,6 +214,12 @@ class Product(Displayable, Priced, RichText):
     def tags_str(self):
         return ', '.join(self.tags.all().values_list('name', flat=True))
 
+    def categories_array(self):
+        return self.categories.all().values_list('title', flat=True)
+
+    def tags_array(self):
+        return self.tags.all().values_list('name', flat=True)
+
     def __unicode__(self):
         return '%s :: %s' % (self.title, self.master_item_code)
 
@@ -215,7 +228,7 @@ class Product(Displayable, Priced, RichText):
         return ("shop_product", (), {"slug": self.slug})
 
     @property
-    def available_sizes(self): #TODO: potentially denormalise this onto the model
+    def available_sizes(self):  # TODO: potentially denormalise this onto the model
         return self.product_sizes.split(",")
 
     @property
@@ -223,26 +236,28 @@ class Product(Displayable, Priced, RichText):
         return self.product_colours.split(",")
 
     @property
-    def available_brands(self): #TODO: potentially denormalise
+    def available_brands(self): # TODO: potentially denormalise
         results = self.tags.filter(tagfacet__name=settings.FACET_BRAND).values_list("name", flat=True)
         return results
 
     @property
-    def available_styles(self): #TODO: potentially denormalise
+    def available_styles(self): # TODO: potentially denormalise
         results = self.tags.filter(tagfacet__name=settings.FACET_STYLE).values_list("name", flat=True)
         return results
 
-    #XXX replace these two methods with tastypie calls
+    # XXX replace these two methods with tastypie calls
     def colours_json(self):
-        colours = self.variations.all().values_list("option%s"%settings.OPTION_STYLE, flat=True)
+        colours = self.variations.all().values_list("option%s" % settings.OPTION_STYLE, flat=True)
         json = []
-        for c in colours: json.append({"colour":c})
+        for c in colours:
+            json.append({"colour": c})
         return simplejson.dumps(json)
 
     def sizes_json(self):
-        cs = self.variations.all().values_list("option%s"%settings.OPTION_SIZE, flat=True)
+        cs = self.variations.all().values_list("option%s" % settings.OPTION_SIZE, flat=True)
         json = []
-        for c in cs: json.append({"size":c})
+        for c in cs:
+            json.append({"size": c})
         return simplejson.dumps(json)
 
     def brands_json(self):
@@ -260,10 +275,10 @@ class Product(Displayable, Priced, RichText):
         url = "http://admin-asia.aws.cottonon.com/admin/shop/product/{0}".format(self.id)
         try:
             v = self.variations.get(default=True)
-        except ProductVariation.DoesNotExist: #fail gracefully by falling back to other variation
+        except ProductVariation.DoesNotExist:  # fail gracefully by falling back to other variation
             elog.error('No default variation for {0} ({1})'.format(self.title, url))
             vs = self.variations.all()
-            v = self if vs.count() == 0 else vs[0] #if no variations at all, return Product else first variation
+            v = self if vs.count() == 0 else vs[0]  # if no variations at all, return Product else first variation
         except MultipleObjectsReturned:
             elog.error('Multiple default variations for {0} ({1})'.format(self.title, url))
             v = self.variations.filter(default=True)[0]
@@ -278,20 +293,23 @@ class Product(Displayable, Priced, RichText):
         categories = self.categories.all().values_list('id', flat=True)
         for cat_id, name in ((822, None),
                              (872, 'mens-shoes'),
+                             (1776, 'mens-shoes'),  # Factorie
                              (857, 'kidsfootwear'),
                              (1747, 'kidsfootwear'),
                              (924, 'body'),
+                             (1767, 'body'), # Factorie
                              (923, 'rubi'),
+                             (1804, 'rubi'),  # Factorie
                              (847, 'kids'),
                              (860, 'men'),
                              (899, 'women'),
                              (1757, 'girls'),
                              (1771, 'guys'),
-                             (1838,'teen')):
+                             (1838, 'teen')):
             if cat_id in categories:
                 sizes = [x.upper() for x in self.available_sizes]
-                if (len(sizes)==1 and
-                    any(x in ["SOLID", "OSFA"] for x in sizes)):
+                if (len(sizes) == 1 and
+                        any(x in ["SOLID", "OSFA"] for x in sizes)):
                     return None
                 return name
         return None
@@ -320,10 +338,10 @@ class Product(Displayable, Priced, RichText):
         if not self.first_published_date and self.status == CONTENT_STATUS_PUBLISHED:
             self.first_published_date = datetime.now()
 
-        #store available variation colours on the product
+        # store available variation colours on the product
         style_field = "option%i" % settings.OPTION_STYLE
-        self.product_colours = ",".join(set(self.variations.values_list(style_field,flat=True)))
-        self.product_sizes = ",".join(set(self.variations.values_list("option%i"%settings.OPTION_SIZE, flat=True)))
+        self.product_colours = ",".join(set(self.variations.values_list(style_field, flat=True)))
+        self.product_sizes = ",".join(set(self.variations.values_list("option%i" % settings.OPTION_SIZE, flat=True)))
         super(Product, self).save(*args, **kwargs)
 
     def admin_thumb(self):
@@ -470,8 +488,8 @@ class ProductOption(models.Model):
     """
     type = models.IntegerField(_("Type"),
                                choices=settings.SHOP_OPTION_TYPE_CHOICES)
-    display_name = fields.CharField(blank=True, max_length=100) #eg "red"
-    name = fields.OptionField(_("Name")) #eg an RMS colour code like 04
+    display_name = fields.CharField(blank=True, max_length=100)  # eg "red"
+    name = fields.OptionField(_("Name"))  # eg an RMS colour code like 04
 
     ranking = models.IntegerField(default=100)
 
@@ -499,7 +517,7 @@ class ProductVariationMetaclass(ModelBase):
     ``SHOP_PRODUCT_OPTIONS`` setting.
     """
     def __new__(cls, name, bases, attrs):
-        if not ("Meta" in attrs and getattr(attrs["Meta"], "proxy", False)): #skip proxy models
+        if not ("Meta" in attrs and getattr(attrs["Meta"], "proxy", False)):  # skip proxy models
             for option in settings.SHOP_OPTION_TYPE_CHOICES:
                 attrs["option%s" % option[0]] = fields.OptionField(option[1])
         args = (cls, name, bases, attrs)
@@ -748,8 +766,8 @@ class Order(models.Model):
 
 
     def save(self, *args, **kwargs):
-        #custom CO save
-        self.has_rms_order_id = len(self.rms_order_id)>0
+        # custom CO save
+        self.has_rms_order_id = len(self.rms_order_id) > 0
         super(Order, self).save(*args, **kwargs)
 
     def __unicode__(self):
@@ -971,7 +989,7 @@ class Cart(models.Model):
         """
         Returns the upsell products for each of the items in the cart.
         """
-        cart = Product.objects.filter(variations__sku__in=self.skus()) #products linked to items in cart
+        cart = Product.objects.filter(variations__sku__in=self.skus())  # products linked to items in cart
         published_products = Product.objects.published()
 
         #all publish products that are linked via upsell_products on cart item products
@@ -1234,8 +1252,8 @@ class SelectedProduct(models.Model):
     def discount_code_discount(self):
         """The discount from the discount code that can be
         attributed to this SelectedProduct."""
-        return  (self.quantity - self.bundle_quantity) * \
-           (self.discount_unit_price - self.unit_price)
+        return (self.quantity - self.bundle_quantity) * \
+            (self.discount_unit_price - self.unit_price)
 
     @property
     def total_line_discount(self):
@@ -1514,10 +1532,10 @@ class ShippingOption(models.Model):
     active = models.BooleanField(_("Active"), default=True)
 
     class Meta:
-        ordering = ['price',]
+        ordering = ['price', ]
 
     def __unicode__(self):
-        return "%s: $%s"%(self.title, self.price)
+        return "%s: $%s" % (self.title, self.price)
 
 
 #TODO: This is a stock cartridge class that has some CO customisations
@@ -1549,7 +1567,7 @@ class DiscountCode(Discount, DiscountCodeUniqueAbstract):
             if discount_deduct < amount:
                 return discount_deduct
         elif self.discount_percent is not None:
-            discount =  amount / Decimal("100") * self.discount_percent
+            discount = amount / Decimal("100") * self.discount_percent
             return discount.quantize(Decimal('0.01'), rounding=ROUND_UP)
         return 0
 
@@ -1646,7 +1664,7 @@ class CategoryPageImage(CloudFrontImage):
         blank=True,
         upload_to="static/media/category_page"
     )
-    alt_text = models.CharField(max_length=140,blank=True)
+    alt_text = models.CharField(max_length=140, blank=True)
     link = models.URLField(max_length=160, verify_exists=False, blank=True)
 
     created = models.DateTimeField(auto_now_add=True)
