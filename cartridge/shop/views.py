@@ -46,6 +46,7 @@ from cottonon_shop.paypal_handler import \
     get_express_checkout_details, do_express_checkout_payment, \
     build_order_form_data, paypal_confirmation_response, get_order_from_token, \
     log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
+from cottonon_shop.cybersource import _cybersetting
 
 
 #TODO remove cartwatcher imports from cartridge
@@ -102,7 +103,7 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     in_stock_colour_codes = set(zip(*add_product_form.fields['option1'].choices)[0])
     variations = MultiCurrencyProductVariation.objects.filter(
         id__in=product.variations.all(),
-        option1__in=in_stock_colour_codes
+        option1__in=in_stock_colour_codes,
     )
 
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
@@ -634,6 +635,17 @@ def checkout_steps(request, extends_template="base.html"):
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step,
                'no_stock':no_stock}
+    if "cybersource" in settings.SHOP_HANDLER_PAYMENT.lower():
+        if _cybersetting("do_device_fingerprinting"):
+            org_id = _cybersetting('device_fingerprinting_org_id')
+            context["cybersource_device_fingerprinting_pixel_url"] = \
+                reverse("cybersource_device_fingerprinting_pixel", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_css_url"] = \
+                reverse("cybersource_device_fingerprinting_css", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_js_url"] = \
+                reverse("cybersource_device_fingerprinting_js", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_flash_url"] = \
+                reverse("cybersource_device_fingerprinting_flash", kwargs={"org_id": org_id})
     return render(request, template, context)
 
 
