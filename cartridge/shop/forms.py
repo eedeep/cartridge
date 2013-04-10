@@ -150,7 +150,7 @@ class AddProductForm(forms.Form):
                 values = filter(None, set(option_values[i]))
             if values:
                 if name == OPTION_SIZE:
-                    product_options = ProductOption.objects.filter(name__in=values, 
+                    product_options = ProductOption.objects.filter(name__in=values,
                         type=i+1).order_by("ranking").values_list("name", flat=True)
 
                     # Using OrderedDict to make sure items are unique
@@ -338,8 +338,10 @@ class ShippingForm(forms.Form):
             'discount_total',
             Decimal("0.00")
         )
-        valid_cart = free_shipping_threshold is not None and \
-          (cart.total_price() - discount_total) >= free_shipping_threshold
+        if free_shipping_threshold is not None and discount_total is not None:
+            valid_cart = (cart.total_price() - discount_total) >= free_shipping_threshold
+        else:
+            valid_cart = False
 
         if valid_shipping and (valid_discount or valid_cart):
             shipping_option = settings.FREE_SHIPPING
@@ -613,8 +615,8 @@ class OrderForm(FormsetForm, DiscountForm):
         for field in required_fields:
             if not self.cleaned_data[field]:
                 missing.append(field)
-        return missing 
-        
+        return missing
+
     def clean(self):
         """
         Raise ``ValidationError`` if any errors have been assigned
@@ -622,8 +624,13 @@ class OrderForm(FormsetForm, DiscountForm):
         """
         if self._checkout_errors:
             raise forms.ValidationError(self._checkout_errors)
+<<<<<<< HEAD
         
         if self.cleaned_data['card_type'].upper() != 'PAYPAL': 
+=======
+
+        if self.cleaned_data['card_type'].upper() != 'PAYPAL':
+>>>>>>> release-1.5.2
             if self.cleaned_data['step'] == 2:
                 missing = self.validate_mandatory_card_fields(['card_number', 'card_type', 'card_name', 'card_ccv'])
                 for field in missing:
