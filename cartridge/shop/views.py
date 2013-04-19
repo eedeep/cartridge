@@ -137,18 +137,25 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     cached_data = cache.get(cache_key, None)
     if cached_data and 'invalidate-cache' not in request.GET:
         context.update(cached_data)
-    elif len(variations) > 0:
-        variation = variations[0]
+    else:
+        categories = product.categories.all()
+        if len(categories) > 0:
+            breadcrumbs = list(categories[0].get_ancestors()) + [categories[0]]
+        else:
+            breadcrumbs = []
         cached_context = dict(
-            root_category=root_category(product.categories),
+            breadcrumbs=breadcrumbs,
+            root_category=breadcrumbs[0].slug if len(breadcrumbs) > 0 else None,
             images=product.reduced_image_set(variations),
             has_available_variations=any(v.has_price(currency) for v in variations),
-            related=product.related_products.published(for_user=request.user),
             keywords=','.join([unicode(x) for x in product.keywords.all()]),
-            size_chart=product.size_chart,
-            has_price=variation.has_price(currency),
-            on_sale=variation.on_sale(currency),
-            is_marked_down=variation.is_marked_down(currency))
+            related=product.related_products.published(for_user=request.user),
+            size_chart=product.size_chart)
+        if len(variations) > 0:
+            variation = variations[0]
+            cached_context['has_price'] = variation.has_price(currency)
+            cached_context['on_sale'] = variation.on_sale(currency)
+            cached_context['is_marked_down'] = variation.is_marked_down(currency)
         cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
         context.update(cached_context)
 
@@ -159,18 +166,6 @@ def product(request, slug, template="shop/product.html", extends_template="base.
         if upsell_promotions.count() > 0:
             context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
-
-def root_category(categories):
-    main_categories = [x.lower() for x in categories.filter(
-            parent_id=None,
-            content_model='category').values_list('slug', flat=True)]
-    if len(main_categories) == 1:
-        return main_categories[0]
-    else:
-        for x in main_categories:
-            if x in [u'typo', u'kids', u'men', u'women', u'body']:
-                return x
-    return None
 
 def generate_cache_key(request):
     ctx = hashlib.md5()
