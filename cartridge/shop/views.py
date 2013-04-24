@@ -49,10 +49,10 @@ from cottonon_shop.paypal_handler import \
 from cottonon_shop.cybersource import _cybersetting
 
 
-#TODO remove cartwatcher imports from cartridge
+# TODO remove cartwatcher imports from cartridge
 try:
     from cartwatcher.promotions.models import Promotion
-except ImportError: #keep running if cartwatcher not installed
+except ImportError:  # keep running if cartwatcher not installed
     Promotion = None
 
 #TODO remove cottonon_shop imports from cartridge
@@ -137,40 +137,35 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     cached_data = cache.get(cache_key, None)
     if cached_data and 'invalidate-cache' not in request.GET:
         context.update(cached_data)
-    elif len(variations) > 0:
-        variation = variations[0]
+    else:
+        categories = product.categories.all()
+        if len(categories) > 0:
+            breadcrumbs = list(categories[0].get_ancestors()) + [categories[0]]
+        else:
+            breadcrumbs = []
         cached_context = dict(
-            root_category=root_category(product.categories),
+            breadcrumbs=breadcrumbs,
+            root_category=breadcrumbs[0].slug if len(breadcrumbs) > 0 else None,
             images=product.reduced_image_set(variations),
             has_available_variations=any(v.has_price(currency) for v in variations),
-            related=product.related_products.published(for_user=request.user),
             keywords=','.join([unicode(x) for x in product.keywords.all()]),
-            size_chart=product.size_chart,
-            has_price=variation.has_price(currency),
-            on_sale=variation.on_sale(currency),
-            is_marked_down=variation.is_marked_down(currency))
+            related=product.related_products.published(for_user=request.user),
+            size_chart=product.size_chart)
+        if len(variations) > 0:
+            variation = variations[0]
+            cached_context['has_price'] = variation.has_price(currency)
+            cached_context['on_sale'] = variation.on_sale(currency)
+            cached_context['is_marked_down'] = variation.is_marked_down(currency)
         cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
         context.update(cached_context)
 
-    #Get the first promotion for this object
+    # Get the first promotion for this object
     if Promotion:
-        #luxury TODO: print the deal's "post applied" message if cart has met requirements.
+        # luxury TODO: print the deal's "post applied" message if cart has met requirements.
         upsell_promotions = Promotion.active.promotions_for_products(request.cart, [product])
-        if upsell_promotions.count()>0:
+        if upsell_promotions.count() > 0:
             context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
-
-def root_category(categories):
-    main_categories = [x.lower() for x in categories.filter(
-            parent_id=None,
-            content_model='category').values_list('slug', flat=True)]
-    if len(main_categories) == 1:
-        return main_categories[0]
-    else:
-        for x in main_categories:
-            if x in [u'typo', u'kids', u'men', u'women', u'body']:
-                return x
-    return None
 
 def generate_cache_key(request):
     ctx = hashlib.md5()
@@ -218,7 +213,7 @@ def wishlist(request, template="shop/wishlist.html"):
         wishlist = ProductVariation.objects.select_related(depth=1).filter(
                                                     sku__in=skus)
     except Exception:
-        print "Variation does not exist"
+        # Variation does not exist
         pass
 
     context = {"wishlist_items": wishlist, "error": error, "emailForm": WishlistEmailForm}
@@ -369,7 +364,7 @@ def get_checkout_with_paypal_redirect_url(request):
 
 
 def cancel_checkout_with_paypal(request):
-    """When the user clicks the "cancel" button in PayPal, 
+    """When the user clicks the "cancel" button in PayPal,
     they get redirected here, where we delete the order for
     their token, log the cancellation to the payments log and
     redirect them back to the cart page.
@@ -398,7 +393,7 @@ def return_from_checkout_with_paypal(request):
         shipping_type_id = request.POST.get('id')
         shipping_detail_country = request.POST.get('shipping_detail_country')
         discount_code = request.POST.get("discount_code", None)
-        order_form_data = {k: v for k, v in request.POST.iteritems() 
+        order_form_data = {k: v for k, v in request.POST.iteritems()
             if not k in ['paypal_email']}
         paypal_email = request.POST.get('paypal_email')
         what_to_hide = everything_except_billing_shipping
@@ -415,13 +410,13 @@ def return_from_checkout_with_paypal(request):
         what_to_hide = everything
 
     shipping_type = get_freight_type_for_id(order.currency, shipping_type_id)
-    # Need to stash the shipping_type in the session here cos sadly that's 
-    # where the discount form grabs it from in order to validate whether the 
+    # Need to stash the shipping_type in the session here cos sadly that's
+    # where the discount form grabs it from in order to validate whether the
     # discount code is valid for the shipping type
     request.session['shipping_type'] = shipping_type.id
     shipping_form = ShippingForm(request, order.currency, initial={'id': shipping_type.id})
     if not is_valid_shipping_choice(order.currency, shipping_type.id, shipping_detail_country):
-        shipping_form.errors['id'] = 'The chosen shipping option is invalid for the destination country.' 
+        shipping_form.errors['id'] = 'The chosen shipping option is invalid for the destination country.'
 
     # We need the discount form too because discount code validity depends on
     # shipping type chosen, which depends on shipping address
@@ -634,7 +629,7 @@ def checkout_steps(request, extends_template="base.html"):
                "extends_template": extends_template,
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step,
-               'no_stock':no_stock}
+               'no_stock': no_stock}
     if "cybersource" in settings.SHOP_HANDLER_PAYMENT.lower():
         if _cybersetting("do_device_fingerprinting"):
             org_id = _cybersetting('device_fingerprinting_org_id')
@@ -699,10 +694,13 @@ def complete(request, template="shop/complete.html", extends_template="base.html
         names[variation.sku] = variation.product.title
     for i, item in enumerate(items):
         setattr(items[i], "name", names[item.sku])
-    context = {"order": order, "items": items,
+    context = {"order": order,
+               "items": items,
+               'track_transaction': order.id != request.session.get('latest_order', ''),
                "extends_template": extends_template,
                'exchange_rates': exchange_rates(),
                "steps": checkout.CHECKOUT_STEPS}
+    request.session['latest_order'] = order.id
     return render(request, template, context)
 
 
