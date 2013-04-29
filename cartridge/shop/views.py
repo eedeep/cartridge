@@ -690,10 +690,17 @@ def complete(request, template="shop/complete.html", extends_template="base.html
     skus = [item.sku for item in items]
     variations = ProductVariation.objects.filter(sku__in=skus)
     names = {}
+    categories = {}
     for variation in variations.select_related(depth=1):
-        names[variation.sku] = variation.product.title
+        product = variation.product
+        names[variation.sku] = product.title
+        categories[variation.sku] = ('%s | %s (%s)' %
+                                    (product.categories.all()[0].slug,
+                                     product.rms_category.name if product.rms_category else 'NA',
+                                     product.rms_category.code if product.rms_category else 'NA'))
     for i, item in enumerate(items):
         setattr(items[i], "name", names[item.sku])
+        setattr(items[i], "category", categories[item.sku])
     context = {"order": order,
                "items": items,
                'track_transaction': order.id != request.session.get('latest_order', ''),
