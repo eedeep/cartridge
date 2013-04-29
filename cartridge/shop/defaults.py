@@ -214,6 +214,7 @@ register_setting(
         (1, _("Unprocessed")),
         (2, _("Processed")),
         (3, _("Requires Review")),
+        (4, _("Rejected")),
     ),
 )
 
