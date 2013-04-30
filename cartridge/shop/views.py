@@ -337,14 +337,14 @@ def finalise_order(transaction_id, request, order,
     subscribe = card_and_billing_data.get('subscribe')
     if subscribe:
         create_subscriber_from_dict({
-                'First Name': card_and_billing_data['billing_detail_first_name'],
-                'Last Name': card_and_billing_data['billing_detail_last_name'],
-                'Email': card_and_billing_data['billing_detail_email'],
-                'Gender': card_and_billing_data['gender'],
-                'Country': card_and_billing_data['billing_detail_country'],
-                'Postcode/Zip': card_and_billing_data['billing_detail_postcode'],
-                'Please subscribe me to': ','.join(card_and_billing_data['subscription_options']),
-                'I have read and accept the Privacy Policy': card_and_billing_data['privacy_policy'],
+            'First Name': card_and_billing_data['billing_detail_first_name'],
+            'Last Name': card_and_billing_data['billing_detail_last_name'],
+            'Email': card_and_billing_data['billing_detail_email'],
+            'Gender': card_and_billing_data['gender'],
+            'Country': card_and_billing_data['billing_detail_country'],
+            'Postcode/Zip': card_and_billing_data['billing_detail_postcode'],
+            'Please subscribe me to': ','.join(card_and_billing_data.get('subscription_options', '')),
+            'I have read and accept the Privacy Policy': card_and_billing_data['privacy_policy'],
         })
 
 
