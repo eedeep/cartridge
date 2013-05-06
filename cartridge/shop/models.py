@@ -338,6 +338,9 @@ class Product(Displayable, Priced, RichText):
         if not self.first_published_date and self.status == CONTENT_STATUS_PUBLISHED:
             self.first_published_date = datetime.now()
 
+        # Remove "#" from slugs COT-392
+        self.slug = self.slug.replace("#", "")
+
         # store available variation colours on the product
         style_field = "option%i" % settings.OPTION_STYLE
         self.product_colours = ",".join(set(self.variations.values_list(style_field, flat=True)))
