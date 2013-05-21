@@ -787,11 +787,13 @@ def cybersource_fields_item(cart):
     for i, item in enumerate(cart.items.all()):
         if i > 49:
             break
-        res['item_%s_sku'] = item.sku
-        res['item_%s_name'] = item.description
-        res['item_%s_unit_price'] = item.unit_price
-        res['item_%s_quantity'] = item.quantity
-        res['item_%s_code'] = 'default'
+        index = i
+        res['item_%s_sku' % index] = item.sku
+        res['item_%s_name' % index] = item.title
+        res['item_%s_unit_price' % index] = '%.2f' % item.unit_price
+        res['item_%s_quantity' % index] = item.quantity
+        res['item_%s_tax_amount' % index] = '%.2f' % 0
+        res['item_%s_code' % index] = 'default'
     return res
 
 def cybersource_post(form, request):
@@ -808,19 +810,19 @@ def cybersource_post(form, request):
     unsigned_fields = dict(card_number=data['card_number'],)
 
     # Signed fields
+    date_time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     signed_fields = dict(
         access_key=sa_settings['access_key'],
         profile_id=sa_settings['profile_id'],
-        signed_date_time=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        signed_date_time=date_time,
         locale='en-us',
         transaction_type='sale',
         signed_field_names='',
         unsigned_field_names='')
     amount = _order_totals(dict(request=request))['order_total']
-    order_id = Order.objects.latest('id').id
     signed_fields.update(dict(
         transaction_uuid=hashlib.sha1('%s%s' % (request.cart.id, data)).hexdigest(),
-        reference_number=order_id,
+        reference_number=hashlib.md5('%s%s' % (request.session.session_key, date_time)).hexdigest(),
         merchant_secure_data1=request.session.session_key,
         amount='%.2f' % amount,
         bill_to_email=data['billing_detail_email'],
@@ -938,6 +940,8 @@ def cybersource_hook(request):
     order = Order(**dict((k, v) for k, v in form_data.items()
                           if k in Order._meta.get_all_field_names()))
     order.setup(request)
+    order.key = post.get('req_reference_number')
+    order.status = status
     finalise_order(transaction_id, request, order, form_data)
 
     # backup remember cookie
