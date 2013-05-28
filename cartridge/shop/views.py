@@ -784,6 +784,7 @@ def cybersource_fields_address(data):
 
 def cybersource_fields_item(cart):
     res = {}
+    index = 0
     for i, item in enumerate(cart.items.all()):
         if i > 49:
             break
@@ -792,8 +793,8 @@ def cybersource_fields_item(cart):
         res['item_%s_name' % index] = item.title
         res['item_%s_unit_price' % index] = '%.2f' % item.unit_price
         res['item_%s_quantity' % index] = item.quantity
-        res['item_%s_tax_amount' % index] = '%.2f' % 0
         res['item_%s_code' % index] = 'default'
+    res['line_item_count'] = str(index + 1)
     return res
 
 def cybersource_post(form, request):
