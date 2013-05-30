@@ -686,6 +686,31 @@ def exchange_rates():
     cache.set(cache_key, json_rates, 3600 * 24)
     return json_rates
 
+def get_or_create_discount(order):
+    template_code = settings.getattr('FACTORY_PURCHASE_DISCOUNT_TPL', False)
+    if not template_code:
+        return None
+    key = '%s%s%s' % (settings.SECRET_KEY, order.id, template_code)
+    code = hashlib.md5(key).hexdigest()[:15].upper()
+    try:
+        return DiscountCode.objects.get(code=code)
+    except DiscountCode.DoesNotExist:
+        pass
+    try:
+        discount = DiscountCode.objects.get(code=template_code)
+    except DiscountCode.DoesNotExist:
+        return None
+    products = list(discount.products.all().values('id', flat=True))
+    categories = list(discount.categories.all().values('id', flat=True))
+    discount.pk = None
+    discount.active = True
+    discount.allowed_no_of_uses = 1
+    discount.code = code
+    discount.save()
+    discount.products.add(*products)
+    discount.categories.add(*categories)
+    return discount
+
 def complete(request, template="shop/complete.html", extends_template="base.html"):
     """
     Redirected to once an order is complete - pass the order object
@@ -713,11 +738,13 @@ def complete(request, template="shop/complete.html", extends_template="base.html
     for i, item in enumerate(items):
         setattr(items[i], "name", names[item.sku])
         setattr(items[i], "category", categories[item.sku])
+    discount = get_or_create_discount(order)
     context = {"order": order,
                "items": items,
                'track_transaction': order.id != request.session.get('latest_order', ''),
                "extends_template": extends_template,
                'exchange_rates': exchange_rates(),
+               'discount': discount,
                "steps": checkout.CHECKOUT_STEPS}
     request.session['latest_order'] = order.id
     return render(request, template, context)

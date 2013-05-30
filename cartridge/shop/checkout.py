@@ -153,10 +153,11 @@ def send_order_email(request, order):
     """
     settings.use_editable()
     order_context = _order_email_context(order)
+    order_context['discount'] = get_or_create_discount(order)
     order_context["request"] = request
     send_mail_template(_("Order Receipt"), "shop/email/order_receipt",
-        settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
-        context=order_context)
+                       settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
+                       context=order_context)
 
 
 # Set up some constants for identifying each checkout step.
