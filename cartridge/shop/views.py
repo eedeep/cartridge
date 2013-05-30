@@ -687,7 +687,7 @@ def exchange_rates():
     return json_rates
 
 def get_or_create_discount(order):
-    template_code = settings.getattr('FACTORY_PURCHASE_DISCOUNT_TPL', False)
+    template_code = getattr(settings, 'FACTORY_PURCHASE_DISCOUNT_TPL', False)
     if not template_code:
         return None
     key = '%s%s%s' % (settings.SECRET_KEY, order.id, template_code)
