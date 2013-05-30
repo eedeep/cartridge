@@ -1161,11 +1161,48 @@ class Cart(models.Model):
         if deductable_items and (not min_purchase or
                                  self.total_price() >= min_purchase):
             if discount_deduct:
-                discount_total = discount_deduct
+                if discount.categories.all().exists or discount.products.all().exists():
+                    self.discount_deduct_distribute(discount, discount_deduct, mc_variations, currency)
+                else:
+                    discount_total = discount_deduct
             elif discount_exact:
                 discount_total = discount_exact
 
         return bundle_collection, discount_total
+
+    def discount_deduct_distribute(self, discount, deduct_total, variations, currency):
+        'Distribute the reduction over all the valid products.'
+        'Substracte (reduction / valid_products) to each valid products.'
+        vhash = dict((x.sku, x) for x in variations)
+        valid_items = []
+        for item in self:
+            if item.sku not in vhash.keys():
+                continue
+            variation = vhash[item.sku]
+            product = variation.product
+            if (not (discount.products.filter(id=product.id).exists() or
+                     discount.categories.filter(id__in=product.categories.all()).exists()) or
+                item.bundle_quantity > 0 or
+                variation.on_sale(currency) or
+                variation.is_marked_down(currency)
+                ):
+                continue
+            valid_items += [item]
+        count = len(valid_items)
+        if count == 0:
+            return False
+        base_reduction = (deduct_total / Decimal(count)).quantize(
+            Decimal('0.01'), rounding=ROUND_UP)
+        overflow = 0
+        for item in valid_items:
+            reduction = base_reduction + overflow
+            if item.unit_price - reduction >= 0:
+                item.discount_unit_price -= reduction
+            else:
+                overflow = reduction - item.unit_price
+                item.discount_unit_price = 0
+            item.save()
+        return True
 
     def has_no_stock(self):
         "Return the products of the cart with no stock"
