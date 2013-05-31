@@ -330,7 +330,7 @@ class ShippingForm(forms.Form):
 
 
         valid_shipping = shipping_option == settings.FREE_SHIPPING or \
-          is_default_shipping_option(currency, shipping_option)
+            is_default_shipping_option(currency, shipping_option)
 
         valid_discount = discount and discount.free_shipping
 
@@ -343,7 +343,20 @@ class ShippingForm(forms.Form):
         else:
             valid_cart = False
 
-        if valid_shipping and (valid_discount or valid_cart):
+        free_shipping_threshold_international = getattr(settings, 'FACTORY_FREE_SHIPPING_THRESHOLD_INTERNATIONAL', None)
+        if (free_shipping_threshold_international and
+            shipping_option in [settings.REST_OF_WORLD, getattr(settings, 'NEW_ZEALAND', None)] and
+            (discount_total is not None and
+             (cart.total_price() - discount_total) >= free_shipping_threshold_international)):
+            international_free_shipping = True
+        else:
+            international_free_shipping = False
+
+        if international_free_shipping:
+            shipping_cost = 0
+            free_shipping = True
+        elif ((valid_shipping and (valid_discount or valid_cart)) or
+              international_free_shipping):
             shipping_option = settings.FREE_SHIPPING
             shipping_cost = 0
             free_shipping = True
