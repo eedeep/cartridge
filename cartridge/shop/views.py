@@ -1,25 +1,33 @@
+import base64
 import hashlib
+import hashlib
+import hmac
 import itertools
 import logging
+import time
 from urllib2 import urlopen, URLError
 from decimal import Decimal
 
 logger = logging.getLogger("cottonon")
+logger_payments = logging.getLogger("payments")
 
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.messages import info
+from django.contrib.sessions.backends.cached_db import SessionStore
+from django.core.cache import cache
+from django.core.serializers.json import DjangoJSONEncoder
 from django.core.urlresolvers import get_callable, reverse
+from django.db.models import Sum, Q
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render_to_response
 from django.template import RequestContext
 from django.template.defaultfilters import slugify
 from django.template.loader import get_template
 from django.utils import simplejson
-from django.core.serializers.json import DjangoJSONEncoder
+from django.utils.http import urlencode
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
-from django.core.cache import cache
-from django.db.models import Sum, Q
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -31,6 +39,9 @@ from cartridge.shop.models import Product, ProductVariation, Order, Cart, Catego
 from cartridge.shop.models import DiscountCode, BundleDiscount
 from cartridge.shop.utils import recalculate_discount, sign, \
      shipping_form_for_cart, discount_form_for_cart
+from multicurrency.templatetags.multicurrency_tags import _order_totals
+
+from countries.models import Country
 
 #TODO remove multicurrency imports from cartridge
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
@@ -46,12 +57,13 @@ from cottonon_shop.paypal_handler import \
     get_express_checkout_details, do_express_checkout_payment, \
     build_order_form_data, paypal_confirmation_response, get_order_from_token, \
     log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
+from cottonon_shop.cybersource import _cybersetting
 
 
-#TODO remove cartwatcher imports from cartridge
+# TODO remove cartwatcher imports from cartridge
 try:
     from cartwatcher.promotions.models import Promotion
-except ImportError: #keep running if cartwatcher not installed
+except ImportError:  # keep running if cartwatcher not installed
     Promotion = None
 
 #TODO remove cottonon_shop imports from cartridge
@@ -102,7 +114,7 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     in_stock_colour_codes = set(zip(*add_product_form.fields['option1'].choices)[0])
     variations = MultiCurrencyProductVariation.objects.filter(
         id__in=product.variations.all(),
-        option1__in=in_stock_colour_codes
+        option1__in=in_stock_colour_codes,
     )
 
     variations_json = simplejson.dumps([dict([(f, getattr(v, f))
@@ -136,40 +148,35 @@ def product(request, slug, template="shop/product.html", extends_template="base.
     cached_data = cache.get(cache_key, None)
     if cached_data and 'invalidate-cache' not in request.GET:
         context.update(cached_data)
-    elif len(variations) > 0:
-        variation = variations[0]
+    else:
+        categories = product.categories.all()
+        if len(categories) > 0:
+            breadcrumbs = list(categories[0].get_ancestors()) + [categories[0]]
+        else:
+            breadcrumbs = []
         cached_context = dict(
-            root_category=root_category(product.categories),
+            breadcrumbs=breadcrumbs,
+            root_category=breadcrumbs[0].slug if len(breadcrumbs) > 0 else None,
             images=product.reduced_image_set(variations),
             has_available_variations=any(v.has_price(currency) for v in variations),
-            related=product.related_products.published(for_user=request.user),
             keywords=','.join([unicode(x) for x in product.keywords.all()]),
-            size_chart=product.size_chart,
-            has_price=variation.has_price(currency),
-            on_sale=variation.on_sale(currency),
-            is_marked_down=variation.is_marked_down(currency))
+            related=product.related_products.published(for_user=request.user),
+            size_chart=product.size_chart)
+        if len(variations) > 0:
+            variation = variations[0]
+            cached_context['has_price'] = variation.has_price(currency)
+            cached_context['on_sale'] = variation.on_sale(currency)
+            cached_context['is_marked_down'] = variation.is_marked_down(currency)
         cache.set(cache_key, cached_context, settings.CACHE_TIMEOUT['product_details'])
         context.update(cached_context)
 
-    #Get the first promotion for this object
+    # Get the first promotion for this object
     if Promotion:
-        #luxury TODO: print the deal's "post applied" message if cart has met requirements.
+        # luxury TODO: print the deal's "post applied" message if cart has met requirements.
         upsell_promotions = Promotion.active.promotions_for_products(request.cart, [product])
-        if upsell_promotions.count()>0:
+        if upsell_promotions.count() > 0:
             context["upsell_promotion"] = upsell_promotions[0].description
     return render(request, template, context)
-
-def root_category(categories):
-    main_categories = [x.lower() for x in categories.filter(
-            parent_id=None,
-            content_model='category').values_list('slug', flat=True)]
-    if len(main_categories) == 1:
-        return main_categories[0]
-    else:
-        for x in main_categories:
-            if x in [u'typo', u'kids', u'men', u'women', u'body']:
-                return x
-    return None
 
 def generate_cache_key(request):
     ctx = hashlib.md5()
@@ -217,7 +224,7 @@ def wishlist(request, template="shop/wishlist.html"):
         wishlist = ProductVariation.objects.select_related(depth=1).filter(
                                                     sku__in=skus)
     except Exception:
-        print "Variation does not exist"
+        # Variation does not exist
         pass
 
     context = {"wishlist_items": wishlist, "error": error, "emailForm": WishlistEmailForm}
@@ -341,14 +348,14 @@ def finalise_order(transaction_id, request, order,
     subscribe = card_and_billing_data.get('subscribe')
     if subscribe:
         create_subscriber_from_dict({
-                'First Name': card_and_billing_data['billing_detail_first_name'],
-                'Last Name': card_and_billing_data['billing_detail_last_name'],
-                'Email': card_and_billing_data['billing_detail_email'],
-                'Gender': card_and_billing_data['gender'],
-                'Country': card_and_billing_data['billing_detail_country'],
-                'Postcode/Zip': card_and_billing_data['billing_detail_postcode'],
-                'Please subscribe me to': ','.join(card_and_billing_data['subscription_options']),
-                'I have read and accept the Privacy Policy': card_and_billing_data['privacy_policy'],
+            'First Name': card_and_billing_data['billing_detail_first_name'],
+            'Last Name': card_and_billing_data['billing_detail_last_name'],
+            'Email': card_and_billing_data['billing_detail_email'],
+            'Gender': card_and_billing_data['gender'],
+            'Country': card_and_billing_data['billing_detail_country'],
+            'Postcode/Zip': card_and_billing_data['billing_detail_postcode'],
+            'Please subscribe me to': ','.join(card_and_billing_data.get('subscription_options', '')),
+            'I have read and accept the Privacy Policy': card_and_billing_data['privacy_policy'],
         })
 
 
@@ -368,7 +375,7 @@ def get_checkout_with_paypal_redirect_url(request):
 
 
 def cancel_checkout_with_paypal(request):
-    """When the user clicks the "cancel" button in PayPal, 
+    """When the user clicks the "cancel" button in PayPal,
     they get redirected here, where we delete the order for
     their token, log the cancellation to the payments log and
     redirect them back to the cart page.
@@ -397,10 +404,13 @@ def return_from_checkout_with_paypal(request):
         shipping_type_id = request.POST.get('id')
         shipping_detail_country = request.POST.get('shipping_detail_country')
         discount_code = request.POST.get("discount_code", None)
-        order_form_data = {k: v for k, v in request.POST.iteritems()}
+        order_form_data = {k: v for k, v in request.POST.iteritems()
+            if not k in ['paypal_email']}
+        paypal_email = request.POST.get('paypal_email')
         what_to_hide = everything_except_billing_shipping
     else:
         express_checkout_details = get_express_checkout_details(order)
+        paypal_email = express_checkout_details['EMAIL']
         if express_checkout_details['SHIPPINGCALCULATIONMODE'] == 'FlatRate':
             shipping_type_id = express_checkout_details['SHIPPINGOPTIONNAME']
         else:
@@ -411,13 +421,13 @@ def return_from_checkout_with_paypal(request):
         what_to_hide = everything
 
     shipping_type = get_freight_type_for_id(order.currency, shipping_type_id)
-    # Need to stash the shipping_type in the session here cos sadly that's 
-    # where the discount form grabs it from in order to validate whether the 
+    # Need to stash the shipping_type in the session here cos sadly that's
+    # where the discount form grabs it from in order to validate whether the
     # discount code is valid for the shipping type
     request.session['shipping_type'] = shipping_type.id
     shipping_form = ShippingForm(request, order.currency, initial={'id': shipping_type.id})
     if not is_valid_shipping_choice(order.currency, shipping_type.id, shipping_detail_country):
-        shipping_form.errors['id'] = 'The chosen shipping option is invalid for the destination country.' 
+        shipping_form.errors['id'] = 'The chosen shipping option is invalid for the destination country.'
 
     # We need the discount form too because discount code validity depends on
     # shipping type chosen, which depends on shipping address
@@ -439,7 +449,7 @@ def return_from_checkout_with_paypal(request):
         form_args['hidden'] = everything_except_billing_shipping
         order_form = form_class(**form_args)
         order_form.is_valid()
-        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, order_form_data['billing_detail_email'])
+        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, paypal_email)
 
     # If an item is out of stock, then for now we just abort the transaction
     no_stock = []
@@ -492,7 +502,7 @@ def return_from_checkout_with_paypal(request):
             return render(request, 'shop/paypal_aborted.html')
     else:
         # Here we display the confirmation page, uneditable
-        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, order_form_data['billing_detail_email'])
+        return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, paypal_email)
 
 
 @never_cache
@@ -628,9 +638,21 @@ def checkout_steps(request, extends_template="base.html"):
     form.label_suffix = ''
     context = {"form": form, "CHECKOUT_STEP_FIRST": CHECKOUT_STEP_FIRST,
                "extends_template": extends_template,
+               'error_message': request.GET.get('error_message'),
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step,
-               'no_stock':no_stock}
+               'no_stock': no_stock}
+    if "cybersource" in settings.SHOP_HANDLER_PAYMENT.lower():
+        if _cybersetting("do_device_fingerprinting"):
+            org_id = _cybersetting('device_fingerprinting_org_id')
+            context["cybersource_device_fingerprinting_pixel_url"] = \
+                reverse("cybersource_device_fingerprinting_pixel", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_css_url"] = \
+                reverse("cybersource_device_fingerprinting_css", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_js_url"] = \
+                reverse("cybersource_device_fingerprinting_js", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_flash_url"] = \
+                reverse("cybersource_device_fingerprinting_flash", kwargs={"org_id": org_id})
     return render(request, template, context)
 
 
@@ -664,6 +686,31 @@ def exchange_rates():
     cache.set(cache_key, json_rates, 3600 * 24)
     return json_rates
 
+def get_or_create_discount(order):
+    template_code = getattr(settings, 'FACTORY_PURCHASE_DISCOUNT_TPL', False)
+    if not template_code:
+        return None
+    key = '%s%s%s' % (settings.SECRET_KEY, order.id, template_code)
+    code = hashlib.md5(key).hexdigest()[:15].upper()
+    try:
+        return DiscountCode.objects.get(code=code)
+    except DiscountCode.DoesNotExist:
+        pass
+    try:
+        discount = DiscountCode.objects.get(code=template_code)
+    except DiscountCode.DoesNotExist:
+        return None
+    products = list(discount.products.all().values('id', flat=True))
+    categories = list(discount.categories.all().values('id', flat=True))
+    discount.pk = None
+    discount.active = True
+    discount.allowed_no_of_uses = 1
+    discount.code = code
+    discount.save()
+    discount.products.add(*products)
+    discount.categories.add(*categories)
+    return discount
+
 def complete(request, template="shop/complete.html", extends_template="base.html"):
     """
     Redirected to once an order is complete - pass the order object
@@ -680,14 +727,26 @@ def complete(request, template="shop/complete.html", extends_template="base.html
     skus = [item.sku for item in items]
     variations = ProductVariation.objects.filter(sku__in=skus)
     names = {}
+    categories = {}
     for variation in variations.select_related(depth=1):
-        names[variation.sku] = variation.product.title
+        product = variation.product
+        names[variation.sku] = product.title
+        categories[variation.sku] = ('%s | %s (%s)' %
+                                    (product.categories.all()[0].slug,
+                                     product.rms_category.name if product.rms_category else 'NA',
+                                     product.rms_category.code if product.rms_category else 'NA'))
     for i, item in enumerate(items):
         setattr(items[i], "name", names[item.sku])
-    context = {"order": order, "items": items,
+        setattr(items[i], "category", categories[item.sku])
+    discount = get_or_create_discount(order)
+    context = {"order": order,
+               "items": items,
+               'track_transaction': order.id != request.session.get('latest_order', ''),
                "extends_template": extends_template,
                'exchange_rates': exchange_rates(),
+               'discount': discount,
                "steps": checkout.CHECKOUT_STEPS}
+    request.session['latest_order'] = order.id
     return render(request, template, context)
 
 
@@ -721,3 +780,200 @@ def invoice(request, order_id, template="shop/order_invoice.html", extends_templ
         ho.pisa.CreatePDF(html, response)
         return response
     return render(request, template, context)
+
+############################
+# Cybersource Silent Order #
+############################
+
+def cybersource_signature(secret, data):
+    return base64.b64encode(hmac.new(secret, data, hashlib.sha256).digest())
+
+def cybersource_fields_address(data):
+    bill_to_country_iso = Country.objects.get(name=data['billing_detail_country']).iso
+    ship_to_country_iso = Country.objects.get(name=data['shipping_detail_country']).iso
+    res = dict(bill_to_address_country=bill_to_country_iso,
+               ship_to_address_country=ship_to_country_iso)
+    for k1, k2 in [('city', 'city'),
+                   ('line1', 'street'),
+                   ('line2', 'street2'),
+                   ('postal_code', 'postcode'),
+                   ('state', 'state'),
+                   ('forename', 'first_name'),
+                   ('surname', 'last_name'),
+                   ('phone', 'phone')]:
+        res['bill_to_address_' + k1] = data['billing_detail_' + k2]
+        res['ship_to_address_' + k1] = data['shipping_detail_' + k2]
+    for k1, k2 in [('forename', 'first_name'),
+                   ('surname', 'last_name')]:
+        res['bill_to_' + k1] = data['billing_detail_' + k2]
+        res['ship_to_' + k1] = data['shipping_detail_' + k2]
+    return res
+
+def cybersource_fields_item(cart):
+    res = {}
+    index = 0
+    for i, item in enumerate(cart.items.all()):
+        if i > 49:
+            break
+        index = i
+        res['item_%s_sku' % index] = item.sku
+        res['item_%s_name' % index] = item.title
+        res['item_%s_unit_price' % index] = '%.2f' % item.unit_price
+        res['item_%s_quantity' % index] = item.quantity
+        res['item_%s_code' % index] = 'default'
+    res['line_item_count'] = str(index + 1)
+    return res
+
+def cybersource_post(form, request):
+    'Send payment data to Cybersource Secure Acceptance'
+    sa_settings = settings.SECURE_ACCEPTANCE
+    data = form.data
+    CARD_TYPE = dict(Visa='001', Mastercard='002')
+
+    # extend user session if it's about to expire
+    if request.session.get_expiry_age() < 60 * 20:
+        request.session.set_expiry(60 * 20)
+
+    # Unsigned fields (All request fields should be signed to prevent data tampering, with the exception of the card_number field and the signature field.)
+    unsigned_fields = dict(card_number=data['card_number'],)
+
+    # Signed fields
+    date_time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    signed_fields = dict(
+        access_key=sa_settings['access_key'],
+        profile_id=sa_settings['profile_id'],
+        signed_date_time=date_time,
+        locale='en-us',
+        transaction_type='sale',
+        signed_field_names='',
+        unsigned_field_names='')
+    amount = _order_totals(dict(request=request))['order_total']
+    signed_fields.update(dict(
+        transaction_uuid=hashlib.sha1('%s%s' % (request.cart.id, data)).hexdigest(),
+        reference_number=hashlib.md5('%s%s' % (request.session.session_key, date_time)).hexdigest(),
+        merchant_secure_data1=request.session.session_key,
+        amount='%.2f' % amount,
+        bill_to_email=data['billing_detail_email'],
+        card_expiry_date='%s-%s' % (data['card_expiry_month'],
+                                    data['card_expiry_year']),
+        card_type=CARD_TYPE[data['card_type']],
+        card_cvn=data['card_ccv'],
+        currency=session_currency(request),
+        payment_method='card'))
+    signed_fields.update(cybersource_fields_address(data))
+    signed_fields.update(cybersource_fields_item(request.cart))
+    signed_fields['signed_field_names'] = ','.join(signed_fields.keys())
+    signed_fields['unsigned_field_names'] = ','.join(unsigned_fields.keys())
+
+    # Cybersource form
+    all_fields = dict(signature=cybersource_signature(
+            sa_settings['secret'],
+            ','.join(['%s=%s' % x for x in signed_fields.items()])))
+    all_fields.update(signed_fields)
+    all_fields.update(unsigned_fields)
+    return render_to_response('shop/cybersource_sa_post.html',
+                              dict(all_fields=all_fields,
+                                   cybersource_url=sa_settings['url'],))
+
+@csrf_exempt
+def cybersource_complete(request):
+    'Cybersource redirects to this function when the transaction finished'
+    if request.method != 'POST':
+        return redirect('shop_checkout')
+
+    # check errors
+    if request.POST.get('decision') in ['DECLINE', 'ERROR']:
+        return redirect(reverse('shop_checkout') +
+                        '?' +
+                        urlencode(dict(error_message='Payment failed (%s)' % request.POST.get('reason_code'))))
+
+    # wait for cybersource_hook to finish
+    order = None
+    for i in range(30):
+        try:
+            order = Order.objects.get(transaction_id=request.POST.get('transaction_id'))
+            break
+        except Order.DoesNotExist:
+            time.sleep(1)
+
+    # update response cookies and redirect
+    response = redirect("shop_complete")
+    remembered = request.session.get('remembered')
+    if remembered:
+        set_cookie(response, "remember", remembered,
+                   secure=request.is_secure())
+        del request.session['remembered']
+    else:
+        response.delete_cookie('remember')
+    return response
+
+
+####################
+# Cybersource hook #
+####################
+
+@csrf_exempt
+def cybersource_hook(request):
+    'Cybersource calls this functions after the transaction is completed'
+    post = request.POST
+    sa_settings = settings.SECURE_ACCEPTANCE
+    transaction_id = post.get('transaction_id')
+    logger_payments.debug('Cybersource hook POST: %s' % post)
+
+    # verify data
+    signature = post.get('signature', False);
+    signed_field_names = post.get('signed_field_names', False)
+    if not signature or not signed_field_names:
+        logger_payments.error('Cybersource SA signature is missing id=%s' % transaction_id)
+        return HttpResponse('Signature is missing')
+    signed_fields_string = ','.join([
+            '%s=%s' % (x, post.get(x, ''))
+            for x in signed_field_names.split(',')])
+    signature_check = cybersource_signature(sa_settings['secret'], signed_fields_string)
+    if signature != signature_check:
+        logger_payments.error('Cybersource SA signature is invalid id=%s' % transaction_id)
+        return HttpResponse('Signature is invalid')
+
+    # check status
+    if post.get('decision') in ['DECLINE', 'ERROR']:
+        logger_payments.error('Cybersource SA decision rejected id=%s' % transaction_id)
+        return HttpResponse('Rejected')
+    if post.get('decision') == 'REVIEW':
+        status = 3
+        logger_payments.error('Cybersource SA decision review id=%s' % transaction_id)
+    else:
+        status = 2
+
+    # create and finalize order
+    customer_session = SessionStore(session_key=post.get('req_merchant_secure_data1'))
+    try:
+        customer_cart = Cart.objects.get(id=customer_session['cart'])
+    except (Cart.DoesNotExist, KeyError):
+        logger_payments.error('Cybersource SA session data is not available id=%s' % transaction_id)
+        return HttpResponse('Session data is not available')
+
+    class CustomRequest():
+        session = customer_session
+        cart = customer_cart
+        user = AnonymousUser()
+        def get_full_path(self):
+            return ''
+        def is_secure(self):
+            return True
+    request = CustomRequest()
+    if '%.2f' % _order_totals(dict(request=request))['order_total'] != post.get('req_amount'):
+        logger_payments.error('Cybersource SA invalid amount id=%s' % transaction_id)
+        return HttpResponse('Cybersource SA invalid amount id=%s' % transaction_id)
+    form_data = request.session['order']
+    order = Order(**dict((k, v) for k, v in form_data.items()
+                          if k in Order._meta.get_all_field_names()))
+    order.setup(request)
+    order.key = post.get('req_reference_number')
+    order.status = status
+    finalise_order(transaction_id, request, order, form_data)
+
+    # backup remember cookie
+    if form_data.get('remember'):
+        request.session['remembered'] = "%s:%s" % (sign(order.key), order.key)
+    request.session.save()
+    return HttpResponse('ok')

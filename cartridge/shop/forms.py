@@ -338,8 +338,10 @@ class ShippingForm(forms.Form):
             'discount_total',
             Decimal("0.00")
         )
-        valid_cart = free_shipping_threshold is not None and \
-          (cart.total_price() - discount_total) >= free_shipping_threshold
+        if free_shipping_threshold is not None and discount_total is not None:
+            valid_cart = (cart.total_price() - discount_total) >= free_shipping_threshold
+        else:
+            valid_cart = False
 
         if valid_shipping and (valid_discount or valid_cart):
             shipping_option = settings.FREE_SHIPPING
@@ -623,13 +625,12 @@ class OrderForm(FormsetForm, DiscountForm):
         if self._checkout_errors:
             raise forms.ValidationError(self._checkout_errors)
 
-        if self.cleaned_data['card_type'] == 'CREDIT_CARD':
-            if not self.cleaned_data['card_number']:
-                if self.cleaned_data['step'] == 2:
-                    missing = self.validate_mandatory_card_fields(['card_number', 'card_type', 'card_name', 'card_ccv'])
-                    for field in missing:
-                        self.errors[field] = self.error_class(['This field is required.'])
-                        del self.cleaned_data[field]
+        if self.cleaned_data['card_type'].upper() != 'PAYPAL':
+            if self.cleaned_data['step'] == 2:
+                missing = self.validate_mandatory_card_fields(['card_number', 'card_type', 'card_name', 'card_ccv'])
+                for field in missing:
+                    self.errors[field] = self.error_class(['This field is required.'])
+                    del self.cleaned_data[field]
         return self.cleaned_data
 
 
