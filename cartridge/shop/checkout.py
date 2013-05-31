@@ -151,6 +151,7 @@ def send_order_email(request, order):
     """
     Send order receipt email on successful order.
     """
+    from cartridge.shop.views import get_or_create_discount
     settings.use_editable()
     order_context = _order_email_context(order)
     order_context['discount'] = get_or_create_discount(order)
