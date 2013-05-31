@@ -150,7 +150,7 @@ class AddProductForm(forms.Form):
                 values = filter(None, set(option_values[i]))
             if values:
                 if name == OPTION_SIZE:
-                    product_options = ProductOption.objects.filter(name__in=values, 
+                    product_options = ProductOption.objects.filter(name__in=values,
                         type=i+1).order_by("ranking").values_list("name", flat=True)
 
                     # Using OrderedDict to make sure items are unique
@@ -381,7 +381,7 @@ class DiscountForm(forms.ModelForm):
         currency = session_currency(self._request)
         if code:
             try:
-                discount = DiscountCode.objects.get_valid(
+                discount = DiscountCode.objects.get_valid_details(
                     code=code,
                     cart=cart,
                     currency=currency
@@ -613,8 +613,8 @@ class OrderForm(FormsetForm, DiscountForm):
         for field in required_fields:
             if not self.cleaned_data[field]:
                 missing.append(field)
-        return missing 
-        
+        return missing
+
     def clean(self):
         """
         Raise ``ValidationError`` if any errors have been assigned
@@ -622,7 +622,7 @@ class OrderForm(FormsetForm, DiscountForm):
         """
         if self._checkout_errors:
             raise forms.ValidationError(self._checkout_errors)
-        
+
         if self.cleaned_data['card_type'] == 'CREDIT_CARD':
             if not self.cleaned_data['card_number']:
                 if self.cleaned_data['step'] == 2:

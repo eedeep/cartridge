@@ -2,6 +2,7 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+from django import forms
 from django.db.models import Manager, Q, F
 from django.utils.datastructures import SortedDict
 from django.core.exceptions import ObjectDoesNotExist
@@ -239,6 +240,12 @@ class BundleDiscountManager(DiscountManager):
 class DiscountCodeManager(DiscountManager):
 
     def get_valid(self, code, cart, currency):
+        try:
+            return self.get_valid_details(code, cart, currency)
+        except forms.ValidationError:
+            raise self.model.DoesNotExist
+
+    def get_valid_details(self, code, cart, currency):
         """
         Items flagged as active and within date range as well checking
         that the given cart contains items that the code is valid for.
@@ -254,8 +261,19 @@ class DiscountCodeManager(DiscountManager):
             Q(allowed_no_of_uses=0) |
             Q(no_of_times_used__lt=F('allowed_no_of_uses'))
         )
+        try:
+            self.active().get(code=code)
+        except self.model.DoesNotExist:
+            raise forms.ValidationError('The discount code has expired.')
+        try:
+            self.active().get(total_price_valid, code=code)
+        except self.model.DoesNotExist:
+            raise forms.ValidationError('The discount code is invalid: minimum cart total not reached.')
+        try:
+            discount = self.active().get(total_price_valid, usages_remaining_valid, code=code)
+        except self.model.DoesNotExist:
+            raise forms.ValidationError('The discount code has already been used.')
 
-        discount = self.active().get(total_price_valid, usages_remaining_valid, code=code)
 
         # If no products or categories are set them assume the discount is
         # store wide.
@@ -279,7 +297,7 @@ class DiscountCodeManager(DiscountManager):
         # If so then it's a valid code that will only be applied to those products
         # (see DiscountCode.calculate_cart() for how that happens)
         if valid_products.count() == 0 and valid_categories.count() == 0:
-            raise self.model.DoesNotExist
+            raise forms.ValidationError('The discount code cannot be used on your cart items.')
         return discount
 
 
