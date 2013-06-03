@@ -22,10 +22,12 @@ from multicurrency.models import MultiCurrencyCart
 TEST_STOCK = settings.STOCK_THRESHOLD + 1
 TEST_PRICE = Decimal("20")
 
+
+
 @unittest.skipUnless(hasattr(settings, 'DEFAULT_CURRENCY') and
                      settings.DEFAULT_CURRENCY == 'AUD',
-                 'Looks like local_settings.py is symlinked to the incorrect '
-                 'local_settings_<region>.py file.')
+                     'Looks like local_settings.py is symlinked to the incorrect '
+                     'local_settings_<region>.py file.')
 class BundleTests(TestCase):
     """
     Test bundled products
@@ -44,15 +46,15 @@ class BundleTests(TestCase):
             fp1=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 1,
-                   '_unit_price_aud': Decimal('12'),}),
+                   '_unit_price_aud': Decimal('12'), }),
             fp2=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 3,
-                   '_unit_price_aud': Decimal('20'),}),
+                   '_unit_price_aud': Decimal('20'), }),
             fp3=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 4,
-                   '_unit_price_aud': Decimal('12'),}),
+                   '_unit_price_aud': Decimal('12'), }),
             md=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 2,
@@ -105,14 +107,14 @@ class BundleTests(TestCase):
                 #      total=Decimal('20')),
                 dict(bundle=bundle,
                      products=[products['fp1'], ],
-                     total=Decimal('12')),],
+                     total=Decimal('12')), ],
             mix_products=[
                 dict(bundle=bundle,
                      products=[products['fp1'], products['md'], ],
                      total=Decimal('21')),
                 dict(bundle=bundle,
                      products=[products['md'], ],
-                     total=Decimal('9')),],
+                     total=Decimal('9')), ],
             categories=[
                 dict(bundle=bundle2,
                      products=[products['fp3'], products['fp3'], ],
@@ -122,8 +124,8 @@ class BundleTests(TestCase):
                      total=Decimal('32')),
                 dict(bundle=bundle2,
                      products=[products['fp3'], ],
-                     total=Decimal('12')),],
-            )
+                     total=Decimal('12')), ],
+        )
 
     def test_bundle(self):
         # create cart
@@ -532,7 +534,7 @@ class DiscountTests(TestCase):
             fp=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 1,
-                   '_unit_price_aud': Decimal('12'),}),
+                   '_unit_price_aud': Decimal('12'), }),
             md=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 2,
@@ -553,6 +555,10 @@ class DiscountTests(TestCase):
         discount_deduct = DiscountCode.objects.create(code='d1',
                                                       _discount_deduct_aud=Decimal('10'),
                                                       _min_purchase_aud=Decimal('10'))
+        discount_deduct2 = DiscountCode.objects.create(code='d2',
+                                                       _discount_deduct_aud=Decimal('10'),
+                                                       _min_purchase_aud=Decimal('10'))
+        discount_deduct2.products.add(products['fp'])
         discount_exact = DiscountCode.objects.create(code='e1',
                                                      _discount_exact_aud=Decimal('10'),
                                                      _min_purchase_aud=Decimal('10'))
@@ -570,16 +576,22 @@ class DiscountTests(TestCase):
                           total=Decimal('9') + Decimal('8.4'))],
             deduct=[dict(discount=discount_deduct,
                          products=[products['fp']],
+                         total=Decimal('12')),
+                    dict(discount=discount_deduct2,
+                         products=[products['fp']],
                          total=Decimal('2')),
                     dict(discount=discount_deduct,
                          products=[products['md'], products['md'], ],
                          total=Decimal('18')),
                     dict(discount=discount_deduct,
                          products=[products['md'], products['fp']],
+                         total=Decimal('9') + Decimal('12')),
+                    dict(discount=discount_deduct2,
+                         products=[products['md'], products['fp']],
                          total=Decimal('9') + Decimal('2'))],
             exact=[dict(discount=discount_exact,
-                         products=[products['fp']],
-                         total=Decimal('2')),
+                        products=[products['fp']],
+                        total=Decimal('2')),
                    dict(discount=discount_exact,
                         products=[products['md'], products['md']],
                         total=Decimal('8')),
