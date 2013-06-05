@@ -238,3 +238,12 @@ register_setting(
         (_("Most expensive"), "-unit_price"),
     ),
 )
+
+register_setting(
+    name="HOMEPAGE_NOTIFICATION_EMAILS",
+    label=_("Homepage notification emails"),
+    description=_("When a homepage status is changed to published,"
+                  "a notification is sent to this (comma separated) email list."),
+    editable=True,
+    default='',
+)
