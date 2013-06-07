@@ -155,6 +155,9 @@ class Product(Displayable, Priced, RichText):
         _("Stock Last Synced"), null=True,
         help_text="When stock for this product was last synced from RMS."
     )
+    date_price_last_modified = models.DateTimeField(
+        _("Price Last Modified"), null=True
+    )
     related_products = models.ManyToManyField("self", blank=True, symmetrical=False)
     upsell_products = models.ManyToManyField("self", blank=True)
     rating = RatingField(verbose_name=_("Rating"))
@@ -577,6 +580,23 @@ class ProductVariation(Priced, ProductVariationAbstract):
                 options.append("%s: %s" % (unicode(field.verbose_name),
                                            value))
         return ("%s %s" % (unicode(self.product), ", ".join(options))).strip()
+
+    def save(self, *args, **kwargs):
+        # Check if unit price has been updated
+        try:
+            original = ProductVariation.objects.get(id=self.id)
+            for currency in settings.STORE_CONFIGS.keys():
+                unit_price = getattr(self, '_unit_price_%s' % currency.lower(), None)
+                if unit_price:
+                    original_price = getattr(original, '_unit_price_%s' % currency.lower(), unit_price)
+                    if unit_price != original_price:
+                        # Unit price has changed
+                        self.product.date_price_last_modified = datetime.now()
+                        self.product.save()
+        except ProductVariation.DoesNotExist:
+            pass
+
+        super(ProductVariation, self).save(*args, **kwargs)
 
     def get_absolute_url(self):
         return self.product.get_absolute_url()
