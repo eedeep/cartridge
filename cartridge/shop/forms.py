@@ -151,19 +151,19 @@ class AddProductForm(forms.Form):
             if values:
                 if name == OPTION_SIZE:
                     product_options = ProductOption.objects.filter(name__in=values,
-                        type=i+1).order_by("ranking").values_list("name", flat=True)
+                        type=i + 1).order_by("ranking").values_list("name", flat=True)
 
                     # Using OrderedDict to make sure items are unique
                     choices = make_choices(
                             list(OrderedDict.fromkeys(product_options))
                     )
 
-                    kwargs = {"label":option_labels[i],
-                              "choices":[(x[0], x[1]) for x in choices]}
+                    kwargs = {"label": option_labels[i],
+                              "choices": [(x[0], x[1]) for x in choices]}
                     kwargs["widget"] = JoshRadioSelect
                 else:
-                    kwargs = {"label":(option_labels[i]),
-                              "choices":[
+                    kwargs = {"label": (option_labels[i]),
+                              "choices": [
                             (x, ProductOption.colourName(x))
                             for x in values]}
                 field = forms.ChoiceField(**kwargs)
@@ -478,7 +478,7 @@ class OrderForm(FormsetForm, DiscountForm):
     card_ccv = forms.CharField(label="CCV", required=False, help_text=_("A security code, "
         "usually the last 3 digits found on the back of your card."))
     subscribe = forms.BooleanField(required=False, initial=False,
-        label=_("Please subscribe me."))
+        label=_("Sign me up!"))
     gender = forms.ChoiceField(label="Gender",
                                choices=make_choices(['Female', 'Male']),
                                required=False)
