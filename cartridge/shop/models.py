@@ -773,6 +773,13 @@ class Order(models.Model):
     def __unicode__(self):
         return "#%s %s %s" % (self.id, self.billing_name(), self.time)
 
+    def transaction_type(self):
+        if self.payment_gateway_transaction_type:
+            return self.payment_gateway_transaction_type
+        elif 'EC-' in self.payment_gateway_transaction_id:
+            return "PayPal"
+        return "Credit Card"
+
     def billing_name(self):
         return "%s %s" % (self.billing_detail_first_name,
                           self.billing_detail_last_name)
