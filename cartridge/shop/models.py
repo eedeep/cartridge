@@ -1645,7 +1645,7 @@ class DiscountCodeUnique(DiscountCode):
 
     class Meta:
         proxy = True
-        app_label = 'Shop'
+        app_label = 'shop'
         verbose_name = 'Unique Discount Code'
         verbose_name_plural = 'Unique Discount Codes'
 
