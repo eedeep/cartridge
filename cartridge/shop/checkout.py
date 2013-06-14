@@ -147,18 +147,31 @@ def _order_email_context(order):
     return order_context
 
 
-def send_order_email(request, order):
-    """
-    Send order receipt email on successful order.
-    """
+def send_email(template_name, subject, request, order):
     from cartridge.shop.views import get_or_create_discount
     settings.use_editable()
     order_context = _order_email_context(order)
     order_context['discount'] = get_or_create_discount(order)
     order_context["request"] = request
-    send_mail_template(_("Order Receipt"), "shop/email/order_receipt",
+    send_mail_template(_(subject), template_name,
                        settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
                        context=order_context)
+
+
+def send_optional_pre_order_email(request, order):
+    """
+    If configured, send an email advising the customer that their
+    order receipt is on the way.
+    """
+    if settings.SEND_PRE_ORDER_RECEIPT_EMAIL:
+        send_email("shop/email/pre_order_advisory", "Order Receipt Coming", request, order)
+
+
+def send_order_email(request, order):
+    """
+    Send order receipt email on successful order.
+    """
+    send_email("shop/email/order_receipt", "Order Receipt", request, order)
 
 
 # Set up some constants for identifying each checkout step.
