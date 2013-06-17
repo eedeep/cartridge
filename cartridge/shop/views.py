@@ -532,8 +532,10 @@ def checkout_steps(request, extends_template="base.html"):
     for cart_item in cart.has_no_stock():
         no_stock += [unicode(cart_item.variation())]
         cart_item.delete()
+    recalculate_discount(request)
     if len(no_stock) != 0:
         delattr(cart, '_cached_items')
+        recalculate_discount(request)
     if request.POST.get("back") is not None:
         # Back button in the form was pressed - load the order form
         # for the previous step and maintain the field values entered.
@@ -731,8 +733,9 @@ def complete(request, template="shop/complete.html", extends_template="base.html
     for variation in variations.select_related(depth=1):
         product = variation.product
         names[variation.sku] = product.title
+        has_categories = product.categories.all().exists()
         categories[variation.sku] = ('%s | %s (%s)' %
-                                    (product.categories.all()[0].slug,
+                                    (product.categories.all()[0].slug if has_categories else 'NA',
                                      product.rms_category.name if product.rms_category else 'NA',
                                      product.rms_category.code if product.rms_category else 'NA'))
     for i, item in enumerate(items):

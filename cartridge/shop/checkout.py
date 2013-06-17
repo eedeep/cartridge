@@ -148,10 +148,14 @@ def _order_email_context(order):
 
 
 def send_email(template_name, subject, request, order):
-    from cartridge.shop.views import get_or_create_discount
+    # Dan: should we remove this block?
+    # from cartridge.shop.views import get_or_create_discount
+    # settings.use_editable()
+    # order_context = _order_email_context(order)
+    # order_context['discount'] = get_or_create_discount(order)
+
     settings.use_editable()
     order_context = _order_email_context(order)
-    order_context['discount'] = get_or_create_discount(order)
     order_context["request"] = request
     send_mail_template(_(subject), template_name,
                        settings.SHOP_ORDER_FROM_EMAIL, order.billing_detail_email,
