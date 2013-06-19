@@ -66,10 +66,10 @@ try:
 except ImportError:  # keep running if cartwatcher not installed
     Promotion = None
 
-#TODO remove cottonon_shop imports from cartridge
+# TODO remove cottonon_shop imports from cartridge
 from cottonon_shop.cybersource import Requires3DSecureVerification
 from cottonon_shop.models import ThreeDSecureTransaction, \
-     create_subscriber_from_dict
+    create_subscriber_from_dict, GPPPoint
 
 # Set up checkout handlers.
 handler = lambda s: import_dotted_path(s) if s else lambda *args: None
@@ -742,7 +742,9 @@ def complete(request, template="shop/complete.html", extends_template="base.html
         setattr(items[i], "name", names[item.sku])
         setattr(items[i], "category", categories[item.sku])
     discount = get_or_create_discount(order)
+    gpp_code = GPPPoint.gpp_code(order)
     context = {"order": order,
+               'gpp_code': gpp_code,
                "items": items,
                'track_transaction': order.id != request.session.get('latest_order', ''),
                "extends_template": extends_template,
