@@ -1223,10 +1223,12 @@ class Cart(models.Model):
         overflow = 0
         for item in valid_items:
             reduction = base_reduction + overflow
-            if item.unit_price - reduction >= 0:
-                item.discount_unit_price -= reduction
+            per_unit_reduction = (reduction / item.quantity).quantize(
+                Decimal('0.01'), rounding=ROUND_UP)
+            if item.unit_price - per_unit_reduction >= 0:
+                item.discount_unit_price -= per_unit_reduction
             else:
-                overflow = reduction - item.unit_price
+                overflow = reduction - item.unit_price * item.quantity
                 item.discount_unit_price = 0
             item.save()
         return True
