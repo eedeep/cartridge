@@ -121,13 +121,16 @@ def product(request, slug, template="shop/product.html", extends_template="base.
                                         for f in fields])
                                         for v in variations])
     currency = session_currency(request)
+    item_code_parts = product.master_item_code.split('-')
+    other_products = Product.objects.filter(master_item_code__startswith=item_code_parts[0]).exclude(master_item_code=product.master_item_code).values('title', 'slug')
     context = {
+        'other_products': other_products,
         "product": product,
         "extends_template": extends_template,
         "variations": variations,
         "variations_json": variations_json,
         "add_product_form": add_product_form
-        }
+    }
 
     if product.bundle_discount_id:
         try:
