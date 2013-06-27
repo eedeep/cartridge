@@ -559,10 +559,10 @@ class DiscountTests(TestCase):
         discount_deduct = DiscountCode.objects.create(code='d1',
                                                       _discount_deduct_aud=Decimal('10'),
                                                       _min_purchase_aud=Decimal('10'))
-        discount_deduct2 = DiscountCode.objects.create(code='d2',
+        discount_deduct_prod = DiscountCode.objects.create(code='d2',
                                                        _discount_deduct_aud=Decimal('10'),
                                                        _min_purchase_aud=Decimal('10'))
-        discount_deduct2.products.add(products['fp_12'])
+        discount_deduct_prod.products.add(products['fp_12'])
         discount_exact = DiscountCode.objects.create(code='e1',
                                                      _discount_exact_aud=Decimal('10'),
                                                      _min_purchase_aud=Decimal('10'))
@@ -581,10 +581,10 @@ class DiscountTests(TestCase):
             deduct=[dict(discount=discount_deduct,
                          products=[products['fp_12']],
                          total=Decimal('2')),
-                    dict(discount=discount_deduct2,
+                    dict(discount=discount_deduct_prod,
                          products=[products['fp_12']],
                          total=Decimal('2')),
-                    dict(discount=discount_deduct2,
+                    dict(discount=discount_deduct_prod,
                          products=[products['fp_25']],
                          total=Decimal('25')),
                     dict(discount=discount_deduct,
@@ -592,8 +592,8 @@ class DiscountTests(TestCase):
                          total=Decimal('18')),
                     dict(discount=discount_deduct,
                          products=[products['md_9'], products['fp_12']],
-                         total=Decimal('9') + Decimal('12')),
-                    dict(discount=discount_deduct2,
+                         total=Decimal('9') + Decimal('2')),
+                    dict(discount=discount_deduct_prod,
                          products=[products['md_9'], products['fp_12']],
                          total=Decimal('9') + Decimal('2'))],
             exact=[dict(discount=discount_exact,
@@ -617,12 +617,13 @@ class DiscountTests(TestCase):
         cart = MultiCurrencyCart.objects.all()[0]
 
         # run tests
-        for scenarios in self.discounts.values():
+        for name, scenarios in self.discounts.items():
             for scenario in scenarios:
                 for product in scenario['products']:
                     cart.add_item(product.variations.all()[0], 1)
                 bundle, discount = cart.calculate_discount(scenario['discount'], 'aud')
                 total = cart.total_price()
+                print name, scenario['products']
                 self.assertEqual(total - discount, scenario['total'])
                 # clear cart
                 for item in cart.items.all():
