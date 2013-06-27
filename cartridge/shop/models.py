@@ -1188,7 +1188,7 @@ class Cart(models.Model):
         if deductable_items and (not min_purchase or
                                  self.total_price() >= min_purchase):
             if discount_deduct:
-                if discount.categories.all().exists or discount.products.all().exists():
+                if discount.categories.all().exists() or discount.products.all().exists():
                     self.discount_deduct_distribute(discount, discount_deduct, mc_variations, currency)
                 else:
                     discount_total = discount_deduct
