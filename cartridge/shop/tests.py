@@ -531,11 +531,15 @@ class DiscountTests(TestCase):
                 name = "test%s" % i
                 ProductOption.objects.create(type=option_type[0], name=name)
         products = dict(
-            fp=Product.objects.create(
+            fp_12=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 1,
                    '_unit_price_aud': Decimal('12'), }),
-            md=Product.objects.create(
+            fp_25=Product.objects.create(
+                **{"status": CONTENT_STATUS_PUBLISHED,
+                   'master_item_code': 3,
+                   '_unit_price_aud': Decimal('25'), }),
+            md_9=Product.objects.create(
                 **{"status": CONTENT_STATUS_PUBLISHED,
                    'master_item_code': 2,
                    '_unit_price_aud': Decimal('9'),
@@ -558,7 +562,7 @@ class DiscountTests(TestCase):
         discount_deduct2 = DiscountCode.objects.create(code='d2',
                                                        _discount_deduct_aud=Decimal('10'),
                                                        _min_purchase_aud=Decimal('10'))
-        discount_deduct2.products.add(products['fp'])
+        discount_deduct2.products.add(products['fp_12'])
         discount_exact = DiscountCode.objects.create(code='e1',
                                                      _discount_exact_aud=Decimal('10'),
                                                      _min_purchase_aud=Decimal('10'))
@@ -566,37 +570,40 @@ class DiscountTests(TestCase):
         # test scenarios
         discounts = dict(
             percent=[dict(discount=discount_percent,
-                          products=[products['fp']],
+                          products=[products['fp_12']],
                           total=Decimal('8.4')),
                      dict(discount=discount_percent,
-                          products=[products['md']],
+                          products=[products['md_9']],
                           total=Decimal('9')),
                      dict(discount=discount_percent,
-                          products=[products['md'], products['fp']],
+                          products=[products['md_9'], products['fp_12']],
                           total=Decimal('9') + Decimal('8.4'))],
             deduct=[dict(discount=discount_deduct,
-                         products=[products['fp']],
-                         total=Decimal('12')),
-                    dict(discount=discount_deduct2,
-                         products=[products['fp']],
+                         products=[products['fp_12']],
                          total=Decimal('2')),
+                    dict(discount=discount_deduct2,
+                         products=[products['fp_12']],
+                         total=Decimal('2')),
+                    dict(discount=discount_deduct2,
+                         products=[products['fp_25']],
+                         total=Decimal('25')),
                     dict(discount=discount_deduct,
-                         products=[products['md'], products['md'], ],
+                         products=[products['md_9'], products['md_9'], ],
                          total=Decimal('18')),
                     dict(discount=discount_deduct,
-                         products=[products['md'], products['fp']],
+                         products=[products['md_9'], products['fp_12']],
                          total=Decimal('9') + Decimal('12')),
                     dict(discount=discount_deduct2,
-                         products=[products['md'], products['fp']],
+                         products=[products['md_9'], products['fp_12']],
                          total=Decimal('9') + Decimal('2'))],
             exact=[dict(discount=discount_exact,
-                        products=[products['fp']],
+                        products=[products['fp_12']],
                         total=Decimal('2')),
                    dict(discount=discount_exact,
-                        products=[products['md'], products['md']],
+                        products=[products['md_9'], products['md_9']],
                         total=Decimal('8')),
                    dict(discount=discount_exact,
-                        products=[products['md'], products['fp']],
+                        products=[products['md_9'], products['fp_12']],
                         total=Decimal('9') + Decimal('2'))])
         self.discounts = discounts
 
