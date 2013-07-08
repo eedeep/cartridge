@@ -744,7 +744,7 @@ def complete(request, template="shop/complete.html", extends_template="base.html
     discount = get_or_create_discount(order)
     gpp_code = GPPPoint.gpp_code(order)
     context = {"order": order,
-               'gpp_code': gpp_code and order.id != request.session.get('latest_order', ''),
+               'gpp_code': gpp_code if order.id != request.session.get('latest_order', '') else None,
                "items": items,
                'track_transaction': order.id != request.session.get('latest_order', ''),
                "extends_template": extends_template,
