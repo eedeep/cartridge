@@ -710,8 +710,8 @@ def get_or_create_discount(order):
         discount = DiscountCode.objects.get(code=template_code)
     except DiscountCode.DoesNotExist:
         return None
-    products = list(discount.products.all().values('id', flat=True))
-    categories = list(discount.categories.all().values('id', flat=True))
+    products = list(discount.products.all().values_list('id', flat=True))
+    categories = list(discount.categories.all().values_list('id', flat=True))
     discount.pk = None
     discount.active = True
     discount.allowed_no_of_uses = 1
@@ -752,7 +752,7 @@ def complete(request, template="shop/complete.html", extends_template="base.html
     discount = get_or_create_discount(order)
     gpp_code = GPPPoint.gpp_code(order)
     context = {"order": order,
-               'gpp_code': gpp_code,
+               'gpp_code': gpp_code if order.id != request.session.get('latest_order', '') else None,
                "items": items,
                'track_transaction': order.id != request.session.get('latest_order', ''),
                "extends_template": extends_template,

@@ -247,3 +247,12 @@ register_setting(
     editable=True,
     default='',
 )
+
+register_setting(
+    name="CATEGORY_NOTIFICATION_EMAILS",
+    label=_("Category is empty emails"),
+    description=_("When a category is empty, "
+                  "a notification is sent to this (comma separated) email list."),
+    editable=True,
+    default='',
+)
