@@ -397,7 +397,6 @@ def return_from_checkout_with_paypal(request):
     token = request.GET.get('token')
     payer_id = request.GET.get('PayerID')
     order = get_order_from_token(token)
-    logger_payments.info('PayPal: Order shipping_type = {0}'.format(order.shipping_type))
     everything = None
     everything_except_billing_shipping = lambda f: not (f.startswith('shipping_') or f.startswith('billing_'))
     if request.POST:
@@ -421,7 +420,7 @@ def return_from_checkout_with_paypal(request):
             # COT-748; sometimes the SHIPPINGCALCULATIONMODE is missing from the paypal
             # response. Cause currently unknown.
             shipping_type_id = order.shipping_type
-            logger_payments.warn('PayPal: SHIPPINGCALCULATIONMODE is missing from the response.\n\
+            logger_payments.warn('PayPal: SHIPPINGCALCULATIONMODE is missing from the response.\n \
                 Full response: {0}'.format(express_checkout_details))
 
         shipping_detail_country = express_checkout_details['PAYMENTREQUEST_0_SHIPTOCOUNTRYNAME'].upper()
