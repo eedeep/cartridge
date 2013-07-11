@@ -421,7 +421,8 @@ def return_from_checkout_with_paypal(request):
             # response. Cause currently unknown.
             shipping_type_id = order.shipping_type
             logger_payments.warn('PayPal: SHIPPINGCALCULATIONMODE is missing from the response.\n \
-                Full response: {0}'.format(express_checkout_details))
+                Using {0}, from the order object.\n \
+                Full response: {1}'.format(order.shipping_type, express_checkout_details))
 
         shipping_detail_country = express_checkout_details['PAYMENTREQUEST_0_SHIPTOCOUNTRYNAME'].upper()
         discount_code = order.discount_code
@@ -429,6 +430,7 @@ def return_from_checkout_with_paypal(request):
         what_to_hide = everything
 
     shipping_type = get_freight_type_for_id(order.currency, shipping_type_id)
+
     # Need to stash the shipping_type in the session here cos sadly that's
     # where the discount form grabs it from in order to validate whether the
     # discount code is valid for the shipping type
