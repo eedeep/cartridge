@@ -409,7 +409,7 @@ def return_from_checkout_with_paypal(request):
         what_to_hide = everything_except_billing_shipping
     else:
         express_checkout_details = get_express_checkout_details(order)
-        paypal_email = express_checkout_details.get['EMAIL']
+        paypal_email = express_checkout_details['EMAIL']
 
         try:
             if express_checkout_details['SHIPPINGCALCULATIONMODE'] == 'FlatRate':
