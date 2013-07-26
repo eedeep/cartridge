@@ -523,6 +523,32 @@ def return_from_checkout_with_paypal(request):
         return paypal_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, paypal_email)
 
 
+def get_cybersource_device_fingerprint_context():
+    context = {}
+    if "cybersource" in settings.SHOP_HANDLER_PAYMENT.lower():
+        if _cybersetting("do_device_fingerprinting"):
+            org_id = _cybersetting('device_fingerprinting_org_id')
+            context["cybersource_device_fingerprinting_pixel_url"] = \
+                reverse("cybersource_device_fingerprinting_pixel", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_css_url"] = \
+                reverse("cybersource_device_fingerprinting_css", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_js_url"] = \
+                reverse("cybersource_device_fingerprinting_js", kwargs={"org_id": org_id})
+            context["cybersource_device_fingerprinting_flash_url"] = \
+                reverse("cybersource_device_fingerprinting_flash", kwargs={"org_id": org_id})
+    return context
+
+
+def get_vme_context(request, form):
+    from cottonon_shop.vme import ap_initiate
+    context = {}
+    if settings.VME in settings.SHOP_CARD_TYPES:
+        order = form.save(commit=False)
+        order.setup(request)
+        context['apInitiateResult'] = ap_initiate(order)
+    return context
+
+
 @never_cache
 def checkout_steps(request, extends_template="base.html"):
     """
@@ -662,17 +688,8 @@ def checkout_steps(request, extends_template="base.html"):
                "step_title": step_vars["title"], "step_url": step_vars["url"],
                "steps": checkout.CHECKOUT_STEPS, "step": step,
                'no_stock': no_stock}
-    if "cybersource" in settings.SHOP_HANDLER_PAYMENT.lower():
-        if _cybersetting("do_device_fingerprinting"):
-            org_id = _cybersetting('device_fingerprinting_org_id')
-            context["cybersource_device_fingerprinting_pixel_url"] = \
-                reverse("cybersource_device_fingerprinting_pixel", kwargs={"org_id": org_id})
-            context["cybersource_device_fingerprinting_css_url"] = \
-                reverse("cybersource_device_fingerprinting_css", kwargs={"org_id": org_id})
-            context["cybersource_device_fingerprinting_js_url"] = \
-                reverse("cybersource_device_fingerprinting_js", kwargs={"org_id": org_id})
-            context["cybersource_device_fingerprinting_flash_url"] = \
-                reverse("cybersource_device_fingerprinting_flash", kwargs={"org_id": org_id})
+    context.update(get_cybersource_device_fingerprint_context())
+    context.update(get_vme_context(request, form))
     return render(request, template, context)
 
 
