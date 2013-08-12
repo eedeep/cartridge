@@ -58,6 +58,10 @@ from cottonon_shop.paypal_handler import \
     build_order_form_data, paypal_confirmation_response, get_order_from_token, \
     log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
 from cottonon_shop.cybersource import _cybersetting
+from cottonon_shop.vme import ap_initiate, ap_checkout_details
+from cottonon_shop.vme_handler import get_order_from_merch_trans_number, \
+    vme_confirmation_response
+from cottonon_shop.vme_handler import build_order_form_data as vme_build_order_form_data
 
 
 # TODO remove cartwatcher imports from cartridge
@@ -539,13 +543,83 @@ def get_cybersource_device_fingerprint_context():
     return context
 
 
-def get_vme_context(request, form):
-    from cottonon_shop.vme import ap_initiate
+@csrf_exempt
+def return_from_checkout_with_vme(request):
+
+    order = get_order_from_merch_trans_number(request.POST.get('merchTrans'))
+
+    everything = None
+    everything_except_billing_shipping = lambda f: not (f.startswith('shipping_') or f.startswith('billing_'))
+
+    # Just assuming nothing was invalid (ie, we're just getting
+    # posted back to from v.me
+    vme_checkout_details = ap_checkout_details(order, request.POST.get('callId'))
+    shipping_type_id = order.shipping_type
+
+    # just do this for now, need to get it off the checkout_details object and 
+    # then lookup the full country from the short code, in the Country model
+    shipping_detail_country = order.shipping_detail_country
+
+    discount_code = order.discount_code
+    order_form_data = vme_build_order_form_data(vme_checkout_details, order)
+    what_to_hide = everything
+
+    shipping_type = get_freight_type_for_id(order.currency, shipping_type_id)
+    request.session['shipping_type'] = shipping_type.id
+    shipping_form = ShippingForm(request, order.currency, initial={'id': shipping_type.id})
+    if not is_valid_shipping_choice(order.currency, shipping_type.id, shipping_detail_country):
+        shipping_form.errors['id'] = 'The chosen shipping option is invalid for the destination country.'
+
+    # We need the discount form too because discount code validity depends on
+    # shipping type chosen, which depends on shipping address
+    discount_form = DiscountForm(request, {'discount_code': discount_code})
+    discount_form.is_valid()
+
+
+    form_class = get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)
+    form_args = dict(
+        request=request,
+        step=1,
+        initial=order_form_data,
+        data=order_form_data,
+        hidden=what_to_hide
+    )
+    order_form = form_class(**form_args)
+
+    # For the payment flow, this should never happen really
+    if shipping_form.errors or not order_form.is_valid() or not discount_form.is_valid():
+        #todo: implement actual response so they can fix whatever was invalid
+        raise Exception("Something was invalid!")
+
+    # If an item is out of stock, then for now we just abort the transaction
+    no_stock = []
+    cart = request.cart
+    for cart_item in cart.has_no_stock():
+        no_stock += [unicode(cart_item.variation())]
+        cart_item.delete()
+    if len(no_stock) != 0:
+        delattr(cart, '_cached_items')
+        log_no_stock_order_aborted(order, no_stock)
+        order.delete()
+        #todo: need to create this template
+        return render(request, 'shop/vme_aborted.html')
+
+    #todo: need to do the actual payment. need a way to distinguish between the
+    # the post back from v.me and the post that comes from the user clicking confirm
+    # on the confirm & pay page (submitting the hidden order form)
+
+    #todo: need to create the checkout_with_vme_confirmation.html template
+    return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form)
+
+
+def get_vme_context(request, form, step):
     context = {}
-    if settings.VME in settings.SHOP_CARD_TYPES:
-        order = form.save(commit=False)
-        order.setup(request)
-        context['apInitiateResult'] = ap_initiate(order)
+    if step == checkout.CHECKOUT_STEP_PAYMENT:
+        if settings.VME in settings.SHOP_CARD_TYPES:
+            order = form.save(commit=False)
+            order.setup(request)
+            context['apInitiateResult'] = ap_initiate(order)
+            context['post_back_url'] = reverse('return_from_checkout_with_vme')
     return context
 
 
@@ -689,7 +763,7 @@ def checkout_steps(request, extends_template="base.html"):
                "steps": checkout.CHECKOUT_STEPS, "step": step,
                'no_stock': no_stock}
     context.update(get_cybersource_device_fingerprint_context())
-    context.update(get_vme_context(request, form))
+    context.update(get_vme_context(request, form, step))
     return render(request, template, context)
 
 
