@@ -804,7 +804,7 @@ class Order(models.Model):
         return "%s %s" % (self.billing_detail_first_name,
                           self.billing_detail_last_name)
 
-    def setup(self, request):
+    def setup(self, request, provisional=False):
         """
         Set order fields that are stored in the session, item_total
         and total based on the given cart, and copy the cart items
@@ -826,23 +826,25 @@ class Order(models.Model):
         if self.discount_total is not None:
             self.total -= self.discount_total
         self.currency = session_currency(request)
-        self.save()  # We need an ID before we can add related items.
-        for item in request.cart:
-            product_fields = [f.name for f in SelectedProduct._meta.fields]
-            #CO custom code to copy promotion details from cartitem to orderitems if available
-            # This 'promotion' stuff is a remnant from the aborted "cart watcher'...
-            # ...dont know why it is here.
-            product_fields.extend([f.name for f in item._meta.fields if "promotion" in f.name])
-            item = dict([(f, getattr(item, f)) for f in product_fields])
-            self.items.create(**item)
-        for item in request.cart:
-            try:
-                variation = ProductVariation.objects.get(sku=item.sku)
-            except ProductVariation.DoesNotExist:
-                pass
-            else:
-                variation.reduce_stock(item.quantity)
-                variation.product.actions.purchased()
+
+        if not provisional:
+            self.save()  # We need an ID before we can add related items.
+            for item in request.cart:
+                product_fields = [f.name for f in SelectedProduct._meta.fields]
+                #CO custom code to copy promotion details from cartitem to orderitems if available
+                # This 'promotion' stuff is a remnant from the aborted "cart watcher'...
+                # ...dont know why it is here.
+                product_fields.extend([f.name for f in item._meta.fields if "promotion" in f.name])
+                item = dict([(f, getattr(item, f)) for f in product_fields])
+                self.items.create(**item)
+            for item in request.cart:
+                try:
+                    variation = ProductVariation.objects.get(sku=item.sku)
+                except ProductVariation.DoesNotExist:
+                    pass
+                else:
+                    variation.reduce_stock(item.quantity)
+                    variation.product.actions.purchased()
 
     def complete(self, request):
         """

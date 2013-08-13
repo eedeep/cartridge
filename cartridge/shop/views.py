@@ -28,6 +28,7 @@ from django.utils.http import urlencode
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
+from django.forms.models import model_to_dict
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -546,7 +547,8 @@ def get_cybersource_device_fingerprint_context():
 @csrf_exempt
 def return_from_checkout_with_vme(request):
 
-    order = get_order_from_merch_trans_number(request.POST.get('merchTrans'))
+    # merchTrans contains the cart.id
+    order = get_order_from_merch_trans_number(request, request.POST.get('merchTrans'))
 
     everything = None
     everything_except_billing_shipping = lambda f: not (f.startswith('shipping_') or f.startswith('billing_'))
@@ -561,7 +563,7 @@ def return_from_checkout_with_vme(request):
     shipping_detail_country = order.shipping_detail_country
 
     discount_code = order.discount_code
-    order_form_data = vme_build_order_form_data(vme_checkout_details, order)
+    order_form_data = vme_build_order_form_data(vme_checkout_details, model_to_dict(order), order.transaction_id)
     what_to_hide = everything
 
     shipping_type = get_freight_type_for_id(order.currency, shipping_type_id)
@@ -574,7 +576,6 @@ def return_from_checkout_with_vme(request):
     # shipping type chosen, which depends on shipping address
     discount_form = DiscountForm(request, {'discount_code': discount_code})
     discount_form.is_valid()
-
 
     form_class = get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)
     form_args = dict(
@@ -612,14 +613,48 @@ def return_from_checkout_with_vme(request):
     return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form)
 
 
-def get_vme_context(request, form, step):
+def get_vme_context(request, form):
     context = {}
-    if step == checkout.CHECKOUT_STEP_PAYMENT:
-        if settings.VME in settings.SHOP_CARD_TYPES:
-            order = form.save(commit=False)
-            order.setup(request)
-            context['apInitiateResult'] = ap_initiate(order)
-            context['post_back_url'] = reverse('return_from_checkout_with_vme')
+    if settings.VME in settings.SHOP_CARD_TYPES:
+        # This will create an order every time anyone
+        # even gets to the payment details page, which is
+        # pretty crazy. But we need a unique ID to use in 
+        # the call to ap_initiate so that we can track the 
+        # order. 
+        # So I think we can use request.cart.id and then when
+        # we get back we try to look up the cart and if it's
+        # still there then we create an order from what's in
+        # request.session['order'] and then use that from then on?
+        # We need to be able to get the totals required for 
+        # _purchase_totals() though, which normally would get
+        # calculated and set on the order in order.setup(request)....
+        # That's not such a big deal I guess....one way we could do that
+        # is to add a save=False parameter to .setup() so that we can
+        # get an unsaved order which will have all the totals calculated 
+        # on it, from the values in the session, it just won't have an ID.
+        # Then we can pass that to the ap_ calls but use the cart.id as the 
+        # unique identifier.... we would want to store that cart.id on the 
+        # order though for audit trail through the logs...that would tie 
+        # the transaction together in that sense but then the cart gets
+        # deleted upon order completion (in .complete()) so that identifier ultimately
+        # won't point to anything meaningful. You really want to use the 
+        # order ID all the way through..... you could get around this though
+        # I guess by storing the cart ID on the order as "v.me tracking ID"
+        # in the transaction_id field and then 
+        # you could work back from teh logs using that. 
+        #
+        # The alternative is to create the order for every potential v.me
+        # checkout but set a "v.me" transaction type on it and a "pending"
+        # state. Then when they checkout using some other means, you delete
+        # any order which are for that session key and are v.me and are "pending". 
+        # It means you burn through a lot of order numbers though and end up with
+        # a bunch of dead ends in teh logs that point to non-existing orders 
+        # (because they've been deleted). 
+        order = form.save(commit=False)
+        order.setup(request, provisional=True)
+        order.transaction_id = request.cart.id
+        context['apInitiateResult'] = ap_initiate(order)
+        context['post_back_url'] = reverse('return_from_checkout_with_vme')
     return context
 
 
@@ -644,6 +679,7 @@ def checkout_steps(request, extends_template="base.html"):
     form = form_class(request, step, initial=initial)
     data = request.POST
     checkout_errors = []
+    vme_context = {}
 
     cart = request.cart
     no_stock = []
@@ -697,6 +733,9 @@ def checkout_steps(request, extends_template="base.html"):
                 except checkout.CheckoutError, e:
                     checkout_errors.append(e)
                 form.set_discount()
+            
+                # if applicable, get context for v.me button
+                vme_context = get_vme_context(request, form)
 
             # FINAL CHECKOUT STEP - handle payment and process order.
             if step == checkout.CHECKOUT_STEP_LAST and not checkout_errors:
@@ -763,7 +802,7 @@ def checkout_steps(request, extends_template="base.html"):
                "steps": checkout.CHECKOUT_STEPS, "step": step,
                'no_stock': no_stock}
     context.update(get_cybersource_device_fingerprint_context())
-    context.update(get_vme_context(request, form, step))
+    context.update(vme_context)
     return render(request, template, context)
 
 
