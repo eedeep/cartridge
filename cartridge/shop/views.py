@@ -1,4 +1,3 @@
-import pudb
 import base64
 import hashlib
 import hashlib
@@ -553,7 +552,6 @@ def return_from_checkout_with_vme(request):
     # then use merchTrans. This might be the best way to distinguish between the 
     # post back from v.me and subsequent form submissions due to validation issues 
     # on the form  etc
-    import pudb;pudb.set_trace() ############################## Breakpoint ##############################
     everything_except_billing_shipping = lambda f: not (f.startswith('shipping_') or f.startswith('billing_'))
     everything = None
     order_payment_gateway_transaction_id = request.POST.get('order_payment_gateway_transaction_id', None)
