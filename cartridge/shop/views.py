@@ -561,7 +561,7 @@ def return_from_checkout_with_vme(request):
         confirming_and_paying = True
     else:
         order_payment_gateway_transaction_id = request.POST.get('merchTrans', None)
-        if not order_transaction_id:
+        if not order_payment_gateway_transaction_id:
             raise VMeFlowError("No order.payment_gateway_transaction_id or merchTrans to find or create order with!")
 
     order = get_order_from_merch_trans_number(request, order_payment_gateway_transaction_id)
