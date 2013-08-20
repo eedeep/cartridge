@@ -60,7 +60,7 @@ from cottonon_shop.paypal_handler import \
     log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
 from cottonon_shop.cybersource import _cybersetting
 from cottonon_shop.vme import ap_initiate, ap_checkout_details, \
-    ap_confirm_purchase, ap_auth
+    ap_confirm_purchase, ap_auth, afs
 from cottonon_shop.vme_handler import get_order_from_merch_trans_number, \
     vme_confirmation_response, VMeFlowError
 from cottonon_shop.vme_handler import build_order_form_data as vme_build_order_form_data
@@ -685,6 +685,11 @@ def return_from_checkout_with_vme(request):
             # We need to get rid of these magic numbers but this means "PROCESSED"
             order.status = 2
             order.save()
+
+            # Log the transaction to Decision Manager
+            risk_indicator = auth_result.get('apReply', {}).get('riskIndicator', False)
+            if risk_indicator:
+                afs(order, call_id, risk_indicator)
             return response
         except (VMeFlowError, checkout.CheckoutError) as e:
             # Revert product stock changes and delete order
