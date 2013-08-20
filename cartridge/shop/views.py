@@ -39,7 +39,7 @@ from cartridge.shop.forms import AddProductForm, DiscountForm, CartItemFormSet, 
 from cartridge.shop.models import Product, ProductVariation, Order, Cart, Category
 from cartridge.shop.models import DiscountCode, BundleDiscount
 from cartridge.shop.utils import recalculate_discount, sign, \
-     shipping_form_for_cart, discount_form_for_cart
+    shipping_form_for_cart, discount_form_for_cart, add_header_sameorigin
 from multicurrency.templatetags.multicurrency_tags import _order_totals
 
 from countries.models import Country
@@ -547,10 +547,10 @@ def get_cybersource_device_fingerprint_context():
 
 @csrf_exempt
 def return_from_checkout_with_vme(request):
-    # merchTrans contains the cart.id and so will order_payment_gateway_transaction_id on the 
+    # merchTrans contains the cart.id and so will order_payment_gateway_transaction_id on the
     # second and subsequent form submissions, so try to get that first and if not
-    # then use merchTrans. This might be the best way to distinguish between the 
-    # post back from v.me and subsequent form submissions due to validation issues 
+    # then use merchTrans. This might be the best way to distinguish between the
+    # post back from v.me and subsequent form submissions due to validation issues
     # on the form  etc
     everything_except_billing_shipping = lambda f: not (f.startswith('shipping_') or f.startswith('billing_'))
     everything = None
@@ -579,9 +579,9 @@ def return_from_checkout_with_vme(request):
         # what is this and should we only get it once, up top?
         vme_checkout_details = ap_checkout_details(order, call_id)
 
-        # so if the post back is coming from cart-flow style checkout, 
+        # so if the post back is coming from cart-flow style checkout,
         # we'll get back the v.me shipping address in shipTo from ap_checkout_details
-        # but if they've done a payment-flow style checkout, that won't be there so 
+        # but if they've done a payment-flow style checkout, that won't be there so
         # we just want the shipping details off the order, which they entered in
         # the billing/shipping form
         if hasattr(vme_checkout_details, 'shipTo'):
@@ -594,7 +594,7 @@ def return_from_checkout_with_vme(request):
         # for now, we don't need to override with anything from v.me cos we are just doing
         # payment flow right now....TODO: later for cart flow though, we'll need to tweek
         # build_order_form_data() so it overrides the appropriate shipping address fields
-        # if they exist in the response...though they do seem to exist regardless of 
+        # if they exist in the response...though they do seem to exist regardless of
         # whether it's payment or cart flow...which could be a problem...
         order_form_data = vme_build_order_form_data(vme_checkout_details, model_to_dict(order), order.payment_gateway_transaction_id)
         what_to_hide = everything
@@ -626,7 +626,7 @@ def return_from_checkout_with_vme(request):
     # For the payment flow, this should never happen really
     if shipping_form.errors or not order_form.is_valid() or not discount_form.is_valid():
         #todo: implement actual response so they can fix whatever was invalid
-        # so when the make some changes after something was invalid....we want 
+        # so when the make some changes after something was invalid....we want
         # to I think, resubmit the form....and obviously validate their address and stuff
         # and make sure that gets stored on the order again too....but what about if the shipping
         # amount changes....by ap_confirm_purchase won't get called until all forms validate....
@@ -674,7 +674,7 @@ def return_from_checkout_with_vme(request):
             auth_result = ap_auth(order, call_id)
 
             response = finalise_order(
-                # maybe this should be something different from the ap_auth.requestID 
+                # maybe this should be something different from the ap_auth.requestID
                 # this should probably be I think auth_result.apReply.orderID which is
                 # actually the call_id from V.Me
                 auth_result.requestID,
@@ -709,38 +709,38 @@ def get_vme_context(request, form):
     if settings.VME in settings.SHOP_CARD_TYPES:
         # This will create an order every time anyone
         # even gets to the payment details page, which is
-        # pretty crazy. But we need a unique ID to use in 
-        # the call to ap_initiate so that we can track the 
-        # order. 
+        # pretty crazy. But we need a unique ID to use in
+        # the call to ap_initiate so that we can track the
+        # order.
         # So I think we can use request.cart.id and then when
         # we get back we try to look up the cart and if it's
         # still there then we create an order from what's in
         # request.session['order'] and then use that from then on?
-        # We need to be able to get the totals required for 
+        # We need to be able to get the totals required for
         # _purchase_totals() though, which normally would get
         # calculated and set on the order in order.setup(request)....
         # That's not such a big deal I guess....one way we could do that
         # is to add a save=False parameter to .setup() so that we can
-        # get an unsaved order which will have all the totals calculated 
+        # get an unsaved order which will have all the totals calculated
         # on it, from the values in the session, it just won't have an ID.
-        # Then we can pass that to the ap_ calls but use the cart.id as the 
-        # unique identifier.... we would want to store that cart.id on the 
-        # order though for audit trail through the logs...that would tie 
+        # Then we can pass that to the ap_ calls but use the cart.id as the
+        # unique identifier.... we would want to store that cart.id on the
+        # order though for audit trail through the logs...that would tie
         # the transaction together in that sense but then the cart gets
         # deleted upon order completion (in .complete()) so that identifier ultimately
-        # won't point to anything meaningful. You really want to use the 
+        # won't point to anything meaningful. You really want to use the
         # order ID all the way through..... you could get around this though
         # I guess by storing the cart ID on the order as "v.me tracking ID"
-        # in the transaction_id field and then 
-        # you could work back from teh logs using that. 
+        # in the transaction_id field and then
+        # you could work back from teh logs using that.
         #
         # The alternative is to create the order for every potential v.me
         # checkout but set a "v.me" transaction type on it and a "pending"
         # state. Then when they checkout using some other means, you delete
-        # any order which are for that session key and are v.me and are "pending". 
+        # any order which are for that session key and are v.me and are "pending".
         # It means you burn through a lot of order numbers though and end up with
-        # a bunch of dead ends in teh logs that point to non-existing orders 
-        # (because they've been deleted). 
+        # a bunch of dead ends in teh logs that point to non-existing orders
+        # (because they've been deleted).
         order = form.save(commit=False)
         order.setup(request, provisional=True)
         order.payment_gateway_transaction_id = request.cart.id
@@ -751,7 +751,7 @@ def get_vme_context(request, form):
 
     return context
 
-
+@add_header_sameorigin
 @never_cache
 def checkout_steps(request, extends_template="base.html"):
     """
