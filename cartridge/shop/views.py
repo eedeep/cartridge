@@ -60,7 +60,7 @@ from cottonon_shop.paypal_handler import \
     log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
 from cottonon_shop.cybersource import _cybersetting
 from cottonon_shop.vme import ap_initiate, ap_checkout_details, \
-    ap_confirm_purchase, ap_auth, afs
+    ap_confirm_purchase, ap_auth, ap_capture, afs
 from cottonon_shop.vme_handler import get_order_from_merch_trans_number, \
     vme_confirmation_response, VMeFlowError
 from cottonon_shop.vme_handler import build_order_form_data as vme_build_order_form_data
@@ -601,7 +601,7 @@ def return_from_checkout_with_vme(request):
         shipping_type_id = order.shipping_type
         discount_code = order.discount_code
         # for now, we don't need to override with anything from v.me cos we are just doing
-        # payment flow right now....TODO: later for cart flow though, we'll need to tweek
+        # payment flow right now....TODO-VME: later for cart flow though, we'll need to tweek
         # build_order_form_data() so it overrides the appropriate shipping address fields
         # if they exist in the response...though they do seem to exist regardless of
         # whether it's payment or cart flow...which could be a problem...
@@ -634,13 +634,13 @@ def return_from_checkout_with_vme(request):
 
     # For the payment flow, this should never happen really
     if shipping_form.errors or not order_form.is_valid() or not discount_form.is_valid():
-        #todo: implement actual response so they can fix whatever was invalid
+        # TODO-VME: implement actual response so they can fix whatever was invalid
         # so when the make some changes after something was invalid....we want
         # to I think, resubmit the form....and obviously validate their address and stuff
         # and make sure that gets stored on the order again too....but what about if the shipping
         # amount changes....by ap_confirm_purchase won't get called until all forms validate....
         # but we WILL need to make sure that we resave the order form onto the order
-        # TODO: need to make sure that we resave the order form onto the order
+        # TODO-VME: need to make sure that we resave the order form onto the order
         form_args['hidden'] = everything_except_billing_shipping
         order_form = form_class(**form_args)
         order_form.is_valid()
@@ -656,10 +656,10 @@ def return_from_checkout_with_vme(request):
         delattr(cart, '_cached_items')
         log_no_stock_order_aborted(order, no_stock)
         order.delete()
-        #todo: need to create this template
+        # TODO-VME: need to tweek up this template to how they want it
         return render(request, 'shop/vme_aborted.html')
 
-    #todo: need to do the actual payment. need a way to distinguish between the
+    # TODO-VME: need to do the actual payment. need a way to distinguish between the
     # the post back from v.me and the post that comes from the user clicking confirm
     # on the confirm & pay page (submitting the hidden order form)
     if confirming_and_paying:
@@ -670,7 +670,7 @@ def return_from_checkout_with_vme(request):
         order.shipping_total = shipping_type.charge
         order.payment_gateway_transaction_type = 'V.ME'
         try:
-            # TODO: this is where the decision manager stuff will happen
+            # TODO-VME: this is where the decision manager stuff will happen
 
             # so here we need to be looking at reponse codes and potentially
             # throwing checkout errors....what do we want to do if their payment
@@ -678,15 +678,27 @@ def return_from_checkout_with_vme(request):
             # and leave them at this page, so they can try again (which will probably be
             # fruitless) or abort them? I prefer abort them.
 
-            # TODO: make sure all this gets logged
+            # TODO-VME: make sure all this gets logged
             ap_confirm_purchase(order, call_id)
             auth_result = ap_auth(order, call_id)
 
+            # Log the transaction to Decision Manager
+            # TODO-VME: Move this to above the ap_capture() call
+            risk_indicator = getattr(
+                getattr(auth_result, 'apReply', None), 
+                'riskIndicator', None
+            )
+            if risk_indicator:
+                afs(order, call_id, risk_indicator)
+
+            # Now capture their money
+            capture_result = ap_capture(order, auth_result.requestID)
+
             response = finalise_order(
-                # maybe this should be something different from the ap_auth.requestID
+                # TODO-VME: maybe this should be something different from the ap_auth.requestID
                 # this should probably be I think auth_result.apReply.orderID which is
                 # actually the call_id from V.Me
-                auth_result.requestID,
+                capture_result.requestID,
                 request,
                 order,
                 order_form.cleaned_data
@@ -695,10 +707,6 @@ def return_from_checkout_with_vme(request):
             order.status = 2
             order.save()
 
-            # Log the transaction to Decision Manager
-            risk_indicator = auth_result.get('apReply', {}).get('riskIndicator', False)
-            if risk_indicator:
-                afs(order, call_id, risk_indicator)
             return response
         except (VMeFlowError, checkout.CheckoutError) as e:
             # Revert product stock changes and delete order
@@ -721,6 +729,7 @@ def return_from_checkout_with_vme(request):
 def get_vme_context(request, form):
     context = {}
     if settings.VME in settings.SHOP_CARD_TYPES:
+        # TODO-VME: tidy this up obviously
         # This will create an order every time anyone
         # even gets to the payment details page, which is
         # pretty crazy. But we need a unique ID to use in
@@ -760,7 +769,7 @@ def get_vme_context(request, form):
         order.payment_gateway_transaction_id = request.cart.id
         context['apInitiateResult'] = ap_initiate(order)
         context['post_back_url'] = reverse('return_from_checkout_with_vme')
-        # TODO: check that this setting exists and if not throw an ImproperlyConfigured exception
+        # TODO-VME: check that this setting exists and if not throw an ImproperlyConfigured exception
         context['vme_static_assets_server'] = _cybersetting("vme_static_assets_server")
 
     return context
