@@ -280,6 +280,7 @@ def _discount_data(request, discount_form):
     return simplejson.dumps(data, cls=DjangoJSONEncoder)
 
 
+@add_header_sameorigin
 def cart(request, template="shop/cart.html", extends_template="base.html"):
     """
     Display cart and handle removing items from the cart.
@@ -329,6 +330,14 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     context["shipping_form"] = shipping_form
     context["extends_template"] = extends_template
     context['CURRENT_REGION'] = getattr(settings, 'CURRENT_REGION', '')
+
+    context.update(get_vme_context(
+            request,
+            get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)(
+                request,
+                1,
+                initial=checkout.initial_order_data(request)),))
+    context.update(dict(cart_page=True))
 
     if request.is_ajax():
         return HttpResponse(_discount_data(request, discount_form), "application/javascript")
