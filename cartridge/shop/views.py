@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import hashlib
 import hmac
 import itertools
 import logging
@@ -58,7 +57,8 @@ from cottonon_shop.paypal_handler import \
     get_express_checkout_details, do_express_checkout_payment, \
     build_order_form_data, paypal_confirmation_response, get_order_from_token, \
     log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
-from cottonon_shop.cybersource import _cybersetting
+from cottonon_shop.cybersource import _cybersetting, CybersourceResponseException, \
+    CybersourceRequiresReview, CybersourceError
 from cottonon_shop.vme import ap_initiate, ap_checkout_details, \
     ap_confirm_purchase, ap_auth, ap_capture, afs
 from cottonon_shop.vme_handler import get_order_from_merch_trans_number, \
@@ -585,8 +585,18 @@ def return_from_checkout_with_vme(request):
     else:
         # it's the post back from v.me
 
-        # what is this and should we only get it once, up top?
-        vme_checkout_details = ap_checkout_details(order, call_id)
+        try:
+            # what is this and should we only get it once, up top?
+            vme_checkout_details = ap_checkout_details(order, call_id)
+        except CybersourceResponseException:
+            #TODO-VME: This is just an example, but basically, whereever
+            # we are hitting the cybersource or vme API then we need to
+            # catch the appropriate exception(s) from the underlying call
+            # to _run_transaction and then do the appropriate thing. In
+            # this example, aborting the order may or may not be the
+            # appropriate thing to do. We need to clarify and confirm this.
+            order.delete()
+            return render(request, 'shop/vme_aborted.html')
 
         # so if the post back is coming from cart-flow style checkout,
         # we'll get back the v.me shipping address in shipTo from ap_checkout_details
