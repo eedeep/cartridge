@@ -4,6 +4,7 @@ import hmac
 import itertools
 import logging
 import time
+import re
 from urllib2 import urlopen, URLError
 from decimal import Decimal
 
@@ -15,7 +16,7 @@ from django.contrib.messages import info
 from django.contrib.sessions.backends.cached_db import SessionStore
 from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
-from django.core.urlresolvers import get_callable, reverse
+from django.core.urlresolvers import get_callable, reverse, resolve
 from django.db.models import Sum, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render_to_response
@@ -28,6 +29,7 @@ from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.forms.models import model_to_dict
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -330,13 +332,13 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     context["shipping_form"] = shipping_form
     context["extends_template"] = extends_template
     context['CURRENT_REGION'] = getattr(settings, 'CURRENT_REGION', '')
-
-    context.update(get_vme_context(
-            request,
-            get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)(
-                request,
-                1,
-                initial=checkout.initial_order_data(request)),))
+    context.update(get_vme_context(request))
+#    context.update(get_vme_context(
+#            request,
+#            get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)(
+#                request,
+#                1,
+#                initial=checkout.initial_order_data(request)),))
     context.update(dict(cart_page=True))
 
     if request.is_ajax():
@@ -736,55 +738,98 @@ def return_from_checkout_with_vme(request):
         return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, call_id)
 
 
-def get_vme_context(request, form):
-    context = {}
+def _emanates_from_cart_page(request):
+    """Return true if the referer was the cart page."""
+    referer = request.META.get('HTTP_REFERER')
+    bits = re.sub('^https?:\/\/', '', referer).split('/')
+    try:
+        match = resolve('/' + '/'.join(bits[1:]))
+    except Resolver404:
+        pass
+    else:
+        if match.view_name == 'shop_cart':
+            return True
+    return False
+
+
+@add_header_sameorigin
+@ensure_csrf_cookie
+def vme_button(request, form=None):
+    """
+     TODO-VME: tidy this up obviously
+     This will create an order every time anyone
+     even gets to the payment details page, which is
+     pretty crazy. But we need a unique ID to use in
+     the call to ap_initiate so that we can track the
+     order.
+     So I think we can use request.cart.id and then when
+     we get back we try to look up the cart and if it's
+     still there then we create an order from what's in
+     request.session['order'] and then use that from then on?
+     We need to be able to get the totals required for
+     _purchase_totals() though, which normally would get
+     calculated and set on the order in order.setup(request)....
+     That's not such a big deal I guess....one way we could do that
+     is to add a save=False parameter to .setup() so that we can
+     get an unsaved order which will have all the totals calculated
+     on it, from the values in the session, it just won't have an ID.
+     Then we can pass that to the ap_ calls but use the cart.id as the
+     unique identifier.... we would want to store that cart.id on the
+     order though for audit trail through the logs...that would tie
+     the transaction together in that sense but then the cart gets
+     deleted upon order completion (in .complete()) so that identifier ultimately
+     won't point to anything meaningful. You really want to use the
+     order ID all the way through..... you could get around this though
+     I guess by storing the cart ID on the order as "v.me tracking ID"
+     in the transaction_id field and then
+     you could work back from teh logs using that.
+    
+     The alternative is to create the order for every potential v.me
+     checkout but set a "v.me" transaction type on it and a "pending"
+     state. Then when they checkout using some other means, you delete
+     any order which are for that session key and are v.me and are "pending".
+     It means you burn through a lot of order numbers though and end up with
+     a bunch of dead ends in teh logs that point to non-existing orders
+     (because they've been deleted).
+    """
     if settings.VME in settings.SHOP_CARD_TYPES:
-        # TODO-VME: tidy this up obviously
-        # This will create an order every time anyone
-        # even gets to the payment details page, which is
-        # pretty crazy. But we need a unique ID to use in
-        # the call to ap_initiate so that we can track the
-        # order.
-        # So I think we can use request.cart.id and then when
-        # we get back we try to look up the cart and if it's
-        # still there then we create an order from what's in
-        # request.session['order'] and then use that from then on?
-        # We need to be able to get the totals required for
-        # _purchase_totals() though, which normally would get
-        # calculated and set on the order in order.setup(request)....
-        # That's not such a big deal I guess....one way we could do that
-        # is to add a save=False parameter to .setup() so that we can
-        # get an unsaved order which will have all the totals calculated
-        # on it, from the values in the session, it just won't have an ID.
-        # Then we can pass that to the ap_ calls but use the cart.id as the
-        # unique identifier.... we would want to store that cart.id on the
-        # order though for audit trail through the logs...that would tie
-        # the transaction together in that sense but then the cart gets
-        # deleted upon order completion (in .complete()) so that identifier ultimately
-        # won't point to anything meaningful. You really want to use the
-        # order ID all the way through..... you could get around this though
-        # I guess by storing the cart ID on the order as "v.me tracking ID"
-        # in the transaction_id field and then
-        # you could work back from teh logs using that.
-        #
-        # The alternative is to create the order for every potential v.me
-        # checkout but set a "v.me" transaction type on it and a "pending"
-        # state. Then when they checkout using some other means, you delete
-        # any order which are for that session key and are v.me and are "pending".
-        # It means you burn through a lot of order numbers though and end up with
-        # a bunch of dead ends in teh logs that point to non-existing orders
-        # (because they've been deleted).
+        if not form:
+            form = get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)(
+                request, 1,
+                initial=checkout.initial_order_data(request)
+            )
         order = form.save(commit=False)
         order.setup(request, provisional=True)
         order.payment_gateway_transaction_id = request.cart.id
-        context['apInitiateResult'] = ap_initiate(order)
-        context['post_back_url'] = reverse('return_from_checkout_with_vme')
+        result = ap_initiate(order)
+        on_cart_page = _emanates_from_cart_page(request)
+        return HttpResponse({
+            simplejson.dumps({
+                'amount': result.apInitiateReply.amount,
+                'apikey': result.apInitiateReply.publicKey,
+                'merchantid': result.apReply.merchantUUID,
+                'siteid': result.apReply.merchantSiteID,
+                'currency': result.purchaseTotals.currency,
+                'merch_trans': result.apReply.purchaseID,
+                'product_desc': result.apReply.productID,
+                'product_id': result.apReply.productID,
+                'token': result.apInitiateReply.signature,
+                'button-style': 'checkout' if on_cart_page else 'payment',
+                'collect-shipping': 'true' if on_cart_page  else 'false',
+            }),
+        })
+    else:
+        return HttpResponse('not applicable')
+
+
+def get_vme_context(request):
+    context = {}
+    if settings.VME in settings.SHOP_CARD_TYPES:
         # TODO-VME: check that this setting exists and if not throw an ImproperlyConfigured exception
         context['vme_static_assets_server'] = _cybersetting("vme_static_assets_server")
-
     return context
 
-@add_header_sameorigin
+
 @never_cache
 def checkout_steps(request, extends_template="base.html"):
     """
@@ -862,7 +907,7 @@ def checkout_steps(request, extends_template="base.html"):
                 form.set_discount()
 
                 # if applicable, get context for v.me button
-                vme_context = get_vme_context(request, form)
+                vme_context = get_vme_context(request)
 
             # FINAL CHECKOUT STEP - handle payment and process order.
             if step == checkout.CHECKOUT_STEP_LAST and not checkout_errors:
