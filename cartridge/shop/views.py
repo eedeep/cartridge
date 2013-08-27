@@ -589,7 +589,7 @@ def return_from_checkout_with_vme(request):
 
         try:
             # what is this and should we only get it once, up top?
-            vme_checkout_details = ap_checkout_details(order, call_id)
+            vme_checkout_details = ap_checkout_details(order.id, call_id, order.currency, order_payment_gateway_transaction_id)
         except CybersourceResponseException:
             #TODO-VME: This is just an example, but basically, whereever
             # we are hitting the cybersource or vme API then we need to
@@ -697,7 +697,7 @@ def return_from_checkout_with_vme(request):
             # Log the transaction to Decision Manager
             # TODO-VME: Move this to above the ap_capture() call
             risk_indicator = getattr(
-                getattr(auth_result, 'apReply', None), 
+                getattr(auth_result, 'apReply', None),
                 'riskIndicator', None
             )
             if risk_indicator:
@@ -783,7 +783,7 @@ def vme_button(request, form=None):
      I guess by storing the cart ID on the order as "v.me tracking ID"
      in the transaction_id field and then
      you could work back from teh logs using that.
-    
+
      The alternative is to create the order for every potential v.me
      checkout but set a "v.me" transaction type on it and a "pending"
      state. Then when they checkout using some other means, you delete
