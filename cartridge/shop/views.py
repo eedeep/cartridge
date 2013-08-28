@@ -757,43 +757,6 @@ def _emanates_from_cart_page(request):
 @add_header_sameorigin
 @ensure_csrf_cookie
 def vme_button(request, form=None):
-    """
-     TODO-VME: tidy this up obviously
-     This will create an order every time anyone
-     even gets to the payment details page, which is
-     pretty crazy. But we need a unique ID to use in
-     the call to ap_initiate so that we can track the
-     order.
-     So I think we can use request.cart.id and then when
-     we get back we try to look up the cart and if it's
-     still there then we create an order from what's in
-     request.session['order'] and then use that from then on?
-     We need to be able to get the totals required for
-     _purchase_totals() though, which normally would get
-     calculated and set on the order in order.setup(request)....
-     That's not such a big deal I guess....one way we could do that
-     is to add a save=False parameter to .setup() so that we can
-     get an unsaved order which will have all the totals calculated
-     on it, from the values in the session, it just won't have an ID.
-     Then we can pass that to the ap_ calls but use the cart.id as the
-     unique identifier.... we would want to store that cart.id on the
-     order though for audit trail through the logs...that would tie
-     the transaction together in that sense but then the cart gets
-     deleted upon order completion (in .complete()) so that identifier ultimately
-     won't point to anything meaningful. You really want to use the
-     order ID all the way through..... you could get around this though
-     I guess by storing the cart ID on the order as "v.me tracking ID"
-     in the transaction_id field and then
-     you could work back from teh logs using that.
-
-     The alternative is to create the order for every potential v.me
-     checkout but set a "v.me" transaction type on it and a "pending"
-     state. Then when they checkout using some other means, you delete
-     any order which are for that session key and are v.me and are "pending".
-     It means you burn through a lot of order numbers though and end up with
-     a bunch of dead ends in teh logs that point to non-existing orders
-     (because they've been deleted).
-    """
     if settings.VME in settings.SHOP_CARD_TYPES:
         if not form:
             form = get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)(
@@ -817,7 +780,7 @@ def vme_button(request, form=None):
                 'product_id': result.apReply.productID,
                 'token': result.apInitiateReply.signature,
                 'button-style': 'checkout' if on_cart_page else 'payment',
-                'collect-shipping': 'true' if on_cart_page  else 'false',
+                'collect-shipping': 'true' if on_cart_page else 'false',
             }),
         })
     else:
