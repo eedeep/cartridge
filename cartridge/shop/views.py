@@ -16,7 +16,7 @@ from django.contrib.messages import info
 from django.contrib.sessions.backends.cached_db import SessionStore
 from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
-from django.core.urlresolvers import get_callable, reverse, resolve
+from django.core.urlresolvers import get_callable, reverse, resolve, Resolver404
 from django.db.models import Sum, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render_to_response
@@ -64,7 +64,7 @@ from cottonon_shop.cybersource import _cybersetting, CybersourceResponseExceptio
 from cottonon_shop.vme import ap_initiate, ap_checkout_details, \
     ap_confirm_purchase, ap_auth, ap_capture, afs
 from cottonon_shop.vme_handler import get_order_from_merch_trans_number, \
-    vme_confirmation_response, VMeFlowError
+    vme_confirmation_response, VMeFlowError, vme_update_order_billing_details
 from cottonon_shop.vme_handler import build_order_form_data as vme_build_order_form_data
 
 
@@ -604,11 +604,7 @@ def return_from_checkout_with_vme(request):
         # but if they've done a payment-flow style checkout, that won't be there so
         # we just want the shipping details off the order, which they entered in
         # the billing/shipping form
-        if hasattr(vme_checkout_details, 'shipTo'):
-            # v.me gives us back the the ISO code not the full country
-            shipping_detail_country = Country.objects.get(iso=vme_checkout_details.shipTo.country).name
-        else:
-            shipping_detail_country = order.shipping_detail_country
+        shipping_detail_country = order.shipping_detail_country
         shipping_type_id = order.shipping_type
         discount_code = order.discount_code
         # for now, we don't need to override with anything from v.me cos we are just doing
@@ -670,72 +666,78 @@ def return_from_checkout_with_vme(request):
         # TODO-VME: need to tweek up this template to how they want it
         return render(request, 'shop/vme_aborted.html')
 
+    if not confirming_and_paying:
+        return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, call_id)
+
+    ###################
+    # Confirm and pay #
+    ###################
+
     # TODO-VME: need to do the actual payment. need a way to distinguish between the
     # the post back from v.me and the post that comes from the user clicking confirm
     # on the confirm & pay page (submitting the hidden order form)
-    if confirming_and_paying:
-        # So now we try to actually do the payment
-        for field_name, value in order_form.cleaned_data.iteritems():
-            if hasattr(order, field_name) and value:
-                setattr(order, field_name, value)
-        order.shipping_total = shipping_type.charge
-        order.payment_gateway_transaction_type = 'V.ME'
-        try:
-            # TODO-VME: this is where the decision manager stuff will happen
 
-            # so here we need to be looking at reponse codes and potentially
-            # throwing checkout errors....what do we want to do if their payment
-            # fails or we deem them too risky? Just show them the error message
-            # and leave them at this page, so they can try again (which will probably be
-            # fruitless) or abort them? I prefer abort them.
+    # So now we try to actually do the payment
+    for field_name, value in order_form.cleaned_data.iteritems():
+        if hasattr(order, field_name) and value:
+            setattr(order, field_name, value)
+    order.shipping_total = shipping_type.charge
+    order.payment_gateway_transaction_type = 'V.ME'
+    try:
+        # TODO-VME: this is where the decision manager stuff will happen
 
-            # TODO-VME: make sure all this gets logged
-            ap_confirm_purchase(order, call_id)
-            auth_result = ap_auth(order, call_id)
+        # so here we need to be looking at reponse codes and potentially
+        # throwing checkout errors....what do we want to do if their payment
+        # fails or we deem them too risky? Just show them the error message
+        # and leave them at this page, so they can try again (which will probably be
+        # fruitless) or abort them? I prefer abort them.
 
-            # Log the transaction to Decision Manager
-            # TODO-VME: Move this to above the ap_capture() call
-            risk_indicator = getattr(
-                getattr(auth_result, 'apReply', None),
-                'riskIndicator', None
-            )
-            if risk_indicator:
-                # Update order with billing details from ap_auth
-                afs_result = afs(order, call_id, risk_indicator)
+        # TODO-VME: make sure all this gets logged
+        ap_confirm_purchase(order, call_id)
+        auth_result = ap_auth(order, call_id)
 
-            # Now capture their money
-            capture_result = ap_capture(order, auth_result.requestID)
+        # Log the transaction to Decision Manager
+        # TODO-VME: Move this to above the ap_capture() call
+        risk_indicator = getattr(
+            getattr(auth_result, 'apReply', None),
+            'riskIndicator', None
+        )
+        if risk_indicator:
+            order = vme_update_order_billing_details(auth_result, order)
+            # Update order with billing details from ap_auth
+            afs_result = afs(order, call_id, risk_indicator)
 
-            response = finalise_order(
-                # TODO-VME: maybe this should be something different from the ap_auth.requestID
-                # this should probably be I think auth_result.apReply.orderID which is
-                # actually the call_id from V.Me
-                capture_result.requestID,
-                request,
-                order,
-                order_form.cleaned_data
-            )
-            # We need to get rid of these magic numbers but this means "PROCESSED"
-            order.status = 2
-            order.save()
+        # Now capture their money
+        capture_result = ap_capture(order, auth_result.requestID)
 
-            return response
-        except (VMeFlowError, checkout.CheckoutError) as e:
-            # Revert product stock changes and delete order
-            for item in request.cart:
-                try:
-                    variation = ProductVariation.objects.get(sku=item.sku)
-                except ProductVariation.DoesNotExist:
-                    pass
-                else:
-                    amount = item.quantity
-                    variation.num_in_stock += amount
-                    variation.num_in_stock_pool += amount
-            order.delete()
-            return render(request, 'shop/vme_aborted.html')
-    else:
-        # Here we display the confirmation page, uneditable
-        return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, call_id)
+        response = finalise_order(
+            # TODO-VME: maybe this should be something different from the ap_auth.requestID
+            # this should probably be I think auth_result.apReply.orderID which is
+            # actually the call_id from V.Me
+            capture_result.requestID,
+            request,
+            order,
+            order_form.cleaned_data
+        )
+        # We need to get rid of these magic numbers but this means "PROCESSED"
+        order.status = 2
+        order.save()
+
+        return response
+    except (VMeFlowError, checkout.CheckoutError):
+        # Revert product stock changes and delete order
+        for item in request.cart:
+            try:
+                variation = ProductVariation.objects.get(sku=item.sku)
+            except ProductVariation.DoesNotExist:
+                pass
+            else:
+                amount = item.quantity
+                variation.num_in_stock += amount
+                variation.num_in_stock_pool += amount
+        order.delete()
+        return render(request, 'shop/vme_aborted.html')
+
 
 
 def _emanates_from_cart_page(request):
