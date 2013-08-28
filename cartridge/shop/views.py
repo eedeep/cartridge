@@ -188,7 +188,7 @@ def product(request, slug, template="shop/product.html", extends_template="base.
 
     # Get the first promotion for this object
     if Promotion:
-        # luxury TODO: print the deal's "post applied" message if cart has met requirements.
+        # luxury TODO: show the deal's "post applied" message if cart has met requirements.
         upsell_promotions = Promotion.active.promotions_for_products(request.cart, [product])
         if upsell_promotions.count() > 0:
             context["upsell_promotion"] = upsell_promotions[0].description
@@ -575,7 +575,19 @@ def return_from_checkout_with_vme(request):
         if not order_payment_gateway_transaction_id:
             raise VMeFlowError("No order.payment_gateway_transaction_id or merchTrans to find or create order with!")
 
-    order = get_order_from_merch_trans_number(request, order_payment_gateway_transaction_id)
+    try:
+        # what is this and should we only get it once, up top?
+        vme_checkout_details = ap_checkout_details('NA', call_id, session_currency(request), order_payment_gateway_transaction_id)
+    except CybersourceResponseException:
+        # TODO-VME: This is just an example, but basically, whereever
+        # we are hitting the cybersource or vme API then we need to
+        # catch the appropriate exception(s) from the underlying call
+        # to _run_transaction and then do the appropriate thing. In
+        # this example, aborting the order may or may not be the
+        # appropriate thing to do. We need to clarify and confirm this.
+        return render(request, 'shop/vme_aborted.html')
+
+    order = get_order_from_merch_trans_number(request, order_payment_gateway_transaction_id, vme_checkout_details)
 
     if confirming_and_paying:
         shipping_type_id = request.POST.get('id')
@@ -586,19 +598,6 @@ def return_from_checkout_with_vme(request):
         what_to_hide = everything_except_billing_shipping
     else:
         # it's the post back from v.me
-
-        try:
-            # what is this and should we only get it once, up top?
-            vme_checkout_details = ap_checkout_details(order.id, call_id, order.currency, order_payment_gateway_transaction_id)
-        except CybersourceResponseException:
-            #TODO-VME: This is just an example, but basically, whereever
-            # we are hitting the cybersource or vme API then we need to
-            # catch the appropriate exception(s) from the underlying call
-            # to _run_transaction and then do the appropriate thing. In
-            # this example, aborting the order may or may not be the
-            # appropriate thing to do. We need to clarify and confirm this.
-            order.delete()
-            return render(request, 'shop/vme_aborted.html')
 
         # so if the post back is coming from cart-flow style checkout,
         # we'll get back the v.me shipping address in shipTo from ap_checkout_details
@@ -701,7 +700,8 @@ def return_from_checkout_with_vme(request):
                 'riskIndicator', None
             )
             if risk_indicator:
-                afs(order, call_id, risk_indicator)
+                # Update order with billing details from ap_auth
+                afs_result = afs(order, call_id, risk_indicator)
 
             # Now capture their money
             capture_result = ap_capture(order, auth_result.requestID)
