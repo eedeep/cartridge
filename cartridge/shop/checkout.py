@@ -128,6 +128,8 @@ def initial_order_data(request):
 def _order_email_context(order):
     """ Return the context with all info rendering an order receipt will need.
     Used by send_order_email and export to PDF in admin """
+    # TODO-VME: Need a conditional in the template so that we don't display
+    # billing details in teh invoice for V.ME type orders
     order_context = {"order": order, "order_items": order.items.all()}
 
     store_config = settings.STORE_CONFIGS[order.currency]

@@ -740,7 +740,7 @@ def return_from_checkout_with_vme(request):
 
 def _emanates_from_cart_page(request):
     """Return true if the referer was the cart page."""
-    referer = request.META.get('HTTP_REFERER')
+    referer = request.META.get('HTTP_REFERER', '')
     bits = re.sub('^https?:\/\/', '', referer).split('/')
     try:
         match = resolve('/' + '/'.join(bits[1:]))
