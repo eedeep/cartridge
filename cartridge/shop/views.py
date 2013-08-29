@@ -333,12 +333,6 @@ def cart(request, template="shop/cart.html", extends_template="base.html"):
     context["extends_template"] = extends_template
     context['CURRENT_REGION'] = getattr(settings, 'CURRENT_REGION', '')
     context.update(get_vme_context(request))
-#    context.update(get_vme_context(
-#            request,
-#            get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)(
-#                request,
-#                1,
-#                initial=checkout.initial_order_data(request)),))
     context.update(dict(cart_page=True))
 
     if request.is_ajax():
@@ -871,8 +865,6 @@ def checkout_steps(request, extends_template="base.html"):
                     checkout_errors.append(e)
                 form.set_discount()
 
-                # if applicable, get context for v.me button
-                vme_context = get_vme_context(request)
 
             # FINAL CHECKOUT STEP - handle payment and process order.
             if step == checkout.CHECKOUT_STEP_LAST and not checkout_errors:
@@ -939,7 +931,7 @@ def checkout_steps(request, extends_template="base.html"):
                "steps": checkout.CHECKOUT_STEPS, "step": step,
                'no_stock': no_stock}
     context.update(get_cybersource_device_fingerprint_context())
-    context.update(vme_context)
+    context.update(get_vme_context(request))
     return render(request, template, context)
 
 
