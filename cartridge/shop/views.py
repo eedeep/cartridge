@@ -61,6 +61,8 @@ from cottonon_shop.paypal_handler import \
     log_cancelled_order, PaypalApiCallException, log_no_stock_order_aborted
 from cottonon_shop.cybersource import _cybersetting, CybersourceResponseException, \
     CybersourceRequiresReview, CybersourceError
+from cottonon_shop.cybersource_exceptions import CybersourceResponseException, \
+    CybersourceRequiresReview, CybersourceError
 from cottonon_shop.vme import ap_initiate, ap_checkout_details, \
     ap_confirm_purchase, ap_auth, ap_capture, afs
 from cottonon_shop.vme_handler import get_order_from_merch_trans_number, \
@@ -699,7 +701,15 @@ def return_from_checkout_with_vme(request):
         if risk_indicator:
             order = vme_update_order_billing_details(auth_result, order)
             # Update order with billing details from ap_auth
-            afs_result = afs(order, call_id, risk_indicator)
+            try:
+                afs_result = afs(order, call_id, risk_indicator)
+            except CybersourceRequiresReview:
+                #TOOD-VME: Get rid of these magic numbers
+                # "Required Review"
+                order.status = 3
+            else:
+                # "Processed"
+                order.status = 2
 
         # Now capture their money
         capture_result = ap_capture(order, auth_result.requestID)
@@ -714,9 +724,7 @@ def return_from_checkout_with_vme(request):
             order_form.cleaned_data
         )
         # We need to get rid of these magic numbers but this means "PROCESSED"
-        order.status = 2
         order.save()
-
         return response
     except (VMeFlowError, checkout.CheckoutError):
         # Revert product stock changes and delete order
