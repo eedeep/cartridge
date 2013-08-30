@@ -206,15 +206,20 @@ register_setting(
     default="do_not_reply@%s" % gethostname(),
 )
 
+ORDER_UNPROCESSED = 1
+ORDER_PROCESSED = 2
+ORDER_REVIEW = 3
+ORDER_REJECTED = 4
+
 register_setting(
     name="SHOP_ORDER_STATUS_CHOICES",
     description="Sequence of value/name pairs for order statuses.",
     editable=False,
     default=(
-        (1, _("Unprocessed")),
-        (2, _("Processed")),
-        (3, _("Requires Review")),
-        (4, _("Rejected")),
+        (ORDER_UNPROCESSED, _("Unprocessed")),
+        (ORDER_PROCESSED, _("Processed")),
+        (ORDER_REVIEW, _("Requires Review")),
+        (ORDER_REJECTED, _("Rejected")),
     ),
 )
 

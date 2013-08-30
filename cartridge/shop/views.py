@@ -41,11 +41,15 @@ from cartridge.shop.models import Product, ProductVariation, Order, Cart, Catego
 from cartridge.shop.models import DiscountCode, BundleDiscount
 from cartridge.shop.utils import recalculate_discount, sign, \
     shipping_form_for_cart, discount_form_for_cart, add_header_sameorigin
+from cartridge.defaults import (ORDER_UNPROCESSED,
+                                ORDER_PROCESSED,
+                                ORDER_REVIEW,
+                                ORDER_REJECTED)
 from multicurrency.templatetags.multicurrency_tags import _order_totals
 
 from countries.models import Country
 
-#TODO remove multicurrency imports from cartridge
+# TODO remove multicurrency imports from cartridge
 from multicurrency.models import MultiCurrencyProduct, MultiCurrencyProductVariation
 from multicurrency.utils import \
     session_currency, default_local_freight_type, is_local_shipping_option,\
@@ -515,7 +519,7 @@ def return_from_checkout_with_paypal(request):
                 order_form.cleaned_data
             )
             # We need to get rid of these magic numbers but this means "PROCESSED"
-            order.status = 2
+            order.status = ORDER_PROCESSED
             order.save()
             return response
         except (PaypalApiCallException, checkout.CheckoutError) as e:
@@ -704,12 +708,9 @@ def return_from_checkout_with_vme(request):
             try:
                 afs_result = afs(order, call_id, risk_indicator)
             except CybersourceRequiresReview:
-                #TOOD-VME: Get rid of these magic numbers
-                # "Required Review"
-                order.status = 3
+                order.status = ORDER_REVIEW
             else:
-                # "Processed"
-                order.status = 2
+                order.status = ORDER_PROCESSED
 
         # Now capture their money
         capture_result = ap_capture(order, auth_result.requestID)
@@ -1229,10 +1230,10 @@ def cybersource_hook(request):
         logger_payments.error('Cybersource SA decision rejected id=%s' % transaction_id)
         return HttpResponse('Rejected')
     if post.get('decision') == 'REVIEW':
-        status = 3
+        status = ORDER_REVIEW
         logger_payments.error('Cybersource SA decision review id=%s' % transaction_id)
     else:
-        status = 2
+        status = ORDER_PROCESSED
 
     # create and finalize order
     customer_session = SessionStore(session_key=post.get('req_merchant_secure_data1'))
