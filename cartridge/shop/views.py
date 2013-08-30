@@ -41,10 +41,10 @@ from cartridge.shop.models import Product, ProductVariation, Order, Cart, Catego
 from cartridge.shop.models import DiscountCode, BundleDiscount
 from cartridge.shop.utils import recalculate_discount, sign, \
     shipping_form_for_cart, discount_form_for_cart, add_header_sameorigin
-from cartridge.defaults import (ORDER_UNPROCESSED,
-                                ORDER_PROCESSED,
-                                ORDER_REVIEW,
-                                ORDER_REJECTED)
+from cartridge.shop.defaults import (ORDER_UNPROCESSED,
+                                     ORDER_PROCESSED,
+                                     ORDER_REVIEW,
+                                     ORDER_REJECTED)
 from multicurrency.templatetags.multicurrency_tags import _order_totals
 
 from countries.models import Country
