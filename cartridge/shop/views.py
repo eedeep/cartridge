@@ -797,7 +797,7 @@ def get_vme_context(request):
         context['vme_static_assets_server'] = _cybersetting("vme_static_assets_server")
     return context
 
-
+@add_header_sameorigin
 @never_cache
 def checkout_steps(request, extends_template="base.html"):
     """
