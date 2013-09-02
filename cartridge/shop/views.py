@@ -563,7 +563,7 @@ def return_from_checkout_with_vme(request):
     # then use merchTrans. This might be the best way to distinguish between the
     # post back from v.me and subsequent form submissions due to validation issues
     # on the form  etc
-    everything_except_billing_shipping = lambda f: not (f.startswith('shipping_') or f.startswith('billing_'))
+    everything_except_shipping = lambda f: not (f.startswith('shipping_'))
     everything = None
     order_payment_gateway_transaction_id = request.POST.get('order_payment_gateway_transaction_id', None)
     call_id = request.POST.get('callId')
@@ -595,7 +595,7 @@ def return_from_checkout_with_vme(request):
         discount_code = request.POST.get("discount_code", None)
         order_form_data = {k: v for k, v in request.POST.iteritems()
             if not k in ['order_payment_gateway_transaction_id', 'callId']}
-        what_to_hide = everything_except_billing_shipping
+        what_to_hide = everything_except_shipping
     else:
         # it's the post back from v.me
 
@@ -648,7 +648,7 @@ def return_from_checkout_with_vme(request):
         # amount changes....by ap_confirm_purchase won't get called until all forms validate....
         # but we WILL need to make sure that we resave the order form onto the order
         # TODO-VME: need to make sure that we resave the order form onto the order
-        form_args['hidden'] = everything_except_billing_shipping
+        form_args['hidden'] = everything_except_shipping
         order_form = form_class(**form_args)
         order_form.is_valid()
         return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, call_id)
