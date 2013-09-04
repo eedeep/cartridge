@@ -1,3 +1,4 @@
+import pudb
 import base64
 import hashlib
 import hmac
@@ -14,6 +15,7 @@ logger_payments = logging.getLogger("payments")
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.messages import info
 from django.contrib.sessions.backends.cached_db import SessionStore
+from django.contrib.sites.models import Site
 from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.urlresolvers import get_callable, reverse, resolve, Resolver404
@@ -795,6 +797,10 @@ def get_vme_context(request):
     if settings.VME in settings.SHOP_CARD_TYPES:
         # TODO-VME: check that this setting exists and if not throw an ImproperlyConfigured exception
         context['vme_static_assets_server'] = _cybersetting("vme_static_assets_server")
+        context['vme_secure_return_url'] = "https://{site}{url}".format(
+            site=Site.objects.get_current().domain,
+            url=reverse('return_from_checkout_with_vme')
+        )
     return context
 
 @add_header_sameorigin
