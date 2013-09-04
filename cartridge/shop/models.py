@@ -856,10 +856,13 @@ class Order(models.Model):
         unique discount code that was used, if one was used at all.
         """
         self.save()  # Save the transaction ID.
+
+        # Clean up the session by popping out the dirt, if it's there -
+        # for V.Me, the order may not be in there, for the cart flow.
         for field in self.session_fields:
             if field in request.session:
-                del request.session[field]
-        del request.session["order"]
+                request.session.pop(field, None)
+        request.session.pop("order", None)
 
         # If a discount code was used and it was a unique discount code
         # (ie, no_of_allowed_uses > 0) then we increment the number of times

@@ -796,11 +796,13 @@ def get_vme_context(request):
     if settings.VME in settings.SHOP_CARD_TYPES:
         # TODO-VME: check that this setting exists and if not throw an ImproperlyConfigured exception
         context['vme_static_assets_server'] = _cybersetting("vme_static_assets_server")
-        context['vme_secure_return_url'] = "https://{site}{url}".format(
+        context['vme_secure_return_url'] = "http{secure}://{site}{url}".format(
+            secure='' if settings.DEBUG or settings.TEST else 's',
             site=Site.objects.get_current().domain,
             url=reverse('return_from_checkout_with_vme')
         )
     return context
+
 
 @add_header_sameorigin
 @never_cache
@@ -824,7 +826,6 @@ def checkout_steps(request, extends_template="base.html"):
     form = form_class(request, step, initial=initial)
     data = request.POST
     checkout_errors = []
-    vme_context = {}
 
     cart = request.cart
     no_stock = []
