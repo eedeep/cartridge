@@ -577,7 +577,7 @@ def return_from_checkout_with_vme(request):
             raise VMeFlowError("No order.payment_gateway_transaction_id or merchTrans to find or create order with!")
 
     try:
-        # what is this and should we only get it once, up top?
+        # TODO-VME: This should only be called once, when the post-back comes in when they're returning from the lightbox
         vme_checkout_details = ap_checkout_details(order_payment_gateway_transaction_id, call_id, session_currency(request), order_payment_gateway_transaction_id)
     except CybersourceResponseException:
         # TODO-VME: This is just an example, but basically, whereever
