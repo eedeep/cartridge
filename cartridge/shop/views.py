@@ -578,7 +578,7 @@ def return_from_checkout_with_vme(request):
 
     try:
         # what is this and should we only get it once, up top?
-        vme_checkout_details = ap_checkout_details('NA', call_id, session_currency(request), order_payment_gateway_transaction_id)
+        vme_checkout_details = ap_checkout_details(order_payment_gateway_transaction_id, call_id, session_currency(request), order_payment_gateway_transaction_id)
     except CybersourceResponseException:
         # TODO-VME: This is just an example, but basically, whereever
         # we are hitting the cybersource or vme API then we need to
