@@ -683,7 +683,7 @@ def return_from_checkout_with_vme(request):
         if hasattr(order, field_name) and value:
             setattr(order, field_name, value)
     order.shipping_total = shipping_type.charge
-    order.payment_gateway_transaction_type = 'V.ME'
+    order.payment_gateway_transaction_type = settings.VME
     try:
         # TODO-VME: this is where the decision manager stuff will happen
 
