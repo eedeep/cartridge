@@ -29,8 +29,9 @@ from django.utils.http import urlencode
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
-from django.forms.models import model_to_dict
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.generic import FormView
+from django.forms.models import model_to_dict
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -557,6 +558,310 @@ def get_cybersource_device_fingerprint_context():
     return context
 
 
+
+class ReturnFromVme(FormView):
+    EVERYTHING = None
+    EVERYTHING_EXCEPT_SHIPPING = lambda f: not (f.startswith('shipping_'))
+    form_classes = {
+        'order': get_callable(settings.SHOP_CHECKOUT_FORM_CLASS),
+        'shipping': ShippingForm,
+        'discount': DiscountForm,
+    }
+    http_method_names = [u'post', ]
+
+    what_to_hide = EVERYTHING
+    tid = None
+    call_id = None
+    confirming_and_paying = False
+    shipping_type = None
+    shipping_detail_country = None
+    discount_code = None
+
+    def __init__(self, *args, **kwargs):
+        self.what_to_hide = self.EVERYTHING
+        self.call_id = None
+        self.tid = None
+        self.confirming_and_paying = False
+        self.shipping_type = None
+        self.shipping_detail_country = None
+        self.discount_code = None
+        super(ReturnFromVme, self).__init__(*args, **kwargs)
+
+    def _abort(self, order):
+        # Revert product stock changes and delete order
+        for item in self.request.cart:
+            try:
+                variation = ProductVariation.objects.get(sku=item.sku)
+            except ProductVariation.DoesNotExist:
+                pass
+            else:
+                amount = item.quantity
+                variation.num_in_stock += amount
+                variation.num_in_stock_pool += amount
+        order.delete()
+        return render(self.request, 'shop/vme_aborted.html')
+
+    def _set_tid(self, request):
+        try:
+            self.tid = request.POST.get('order_payment_gateway_transaction_id')
+            self.confirming_and_paying = True
+        except KeyError:
+            try:
+                self.tid = request.POST.get('merchTrans')
+            except KeyError:
+                raise VMeFlowError("No order.payment_gateway_transaction_id '\
+                'or merchTrans to find or create order with!")
+        self.call_id = request.POST.get('callId'),
+
+    def _abort_if_no_stock(self, order):
+        no_stock = []
+        cart = self.request.cart
+        for cart_item in cart.has_no_stock():
+            no_stock += [unicode(cart_item.variation())]
+            # TODO-VME: Need to check this
+            cart_item.delete()
+        if len(no_stock) != 0:
+            delattr(cart, '_cached_items')
+#            log_no_stock_order_aborted(order, no_stock)
+#            order.delete()
+            # TODO-VME: need to tweek up this template to how they want it
+            return self._abort(order)
+
+    def _get_checkout_details(self, request):
+        try:
+            return ap_checkout_details(self.call_id, session_currency(request), self.tid)
+        except CybersourceResponseException as e:
+            raise e
+
+    def _build_order_form_data(self, vme_checkout_details, checkout_form_data):
+        """
+        Return a dictionary to initialise the order form with,
+        which maps parameter values returned from v.me's ap_checkout_details
+        to the appropriate form fields. Some mandatory form fields like phone number
+        and some card_ fields, we don't have values for from v.me, so we
+        provide dummy valudes in order to fake them so that the form still works.
+        """
+        order_form_data = {}
+        # Bill to V.me fields: email
+        bill_to = self._convert_vme_address(getattr(vme_checkout_details, 'billTo', None))
+        # Ship to V.me fields (available for cart flow):
+        # street[1-3], city, state, postalCode, country, phoneNumber, name
+        ship_to = self._convert_vme_address(getattr(vme_checkout_details, 'shipTo', None))
+        cart_flow = bool(ship_to)
+        field_mapping = [
+            ('billing_detail_city', None, ' '),
+            ('billing_detail_country', None, 'AUSTRALIA'),
+            ('billing_detail_email', bill_to.email, None),
+            ('billing_detail_first_name', None, ' '),
+            ('billing_detail_last_name', None, ' '),
+            ('billing_detail_postcode', None, ' '),
+            ('billing_detail_state', None, ' '),
+            ('billing_detail_street', None, ' '),
+            ('billing_detail_street2', None, None),
+            ('billing_detail_phone', None, ' '),
+            ('shipping_detail_city', ship_to.city, None),
+            ('shipping_detail_country', ship_to.country, None),
+            ('shipping_detail_first_name', ship_to.first_name, None),
+            ('shipping_detail_last_name', ship_to.last_name, None),
+            ('shipping_detail_postcode', ship_to.postcode, None),
+            ('shipping_detail_state', ship_to.state, None),
+            ('shipping_detail_street', ship_to.street, None),
+            ('shipping_detail_street2', ship_to.street2, None),
+            ('shipping_detail_phone', ship_to.phone, '0000 0000'),
+            ('card_payment_type', None, 'V.ME'),
+            ('card_expiry_month', None, '12'),
+            ('card_expiry_year', None, datetime.now().year),
+            ('same_billing_shipping', None, 'on'),
+            ('terms', None, 'on'),
+        ]
+        for order_field_name, vme_value, default_value in field_mapping:
+            if vme_value and cart_flow:
+                value = vme_value
+            else:
+                value = checkout_form_data.get(order_field_name, default_value)
+            order_form_data[order_field_name] = value
+        return order_form_data
+
+    def _convert_vme_address(self, vme_address):
+        class Address(object):
+            pass
+        result = Address()
+        full_name = getattr(vme_address, 'name', None)
+        result.first_name = full_name.split()[0] if full_name else None
+        result.last_name = ' '.join(full_name.split()[1:]) if full_name else None
+        country_code = getattr(vme_address, 'country', 'AU')
+        try:
+            result.country = Country.objects.get(iso=country_code.upper).name
+        except Country.DoesNotExist as e:
+            raise VMeFlowError(e)
+        result.email = getattr(vme_address, 'email', None)
+        result.city = getattr(vme_address, 'city', None)
+        result.postcode = getattr(vme_address, 'postalCode', None)
+        result.state = getattr(vme_address, 'state', None)
+        result.street = getattr(vme_address, 'street1', None)
+        result.street2 = getattr(vme_address, 'street2', '') + getattr(vme_address, 'street3', '')
+        result.phone = getattr(vme_address, 'phoneNumber', '0000 0000')
+        return result
+
+    def _update_order_billing_details(self, auth_result, order):
+        vme_bill_to = getattr(auth_result, 'billTo', None)
+        if not vme_bill_to:
+            return order
+        bill_to = self._convert_vme_address(vme_bill_to)
+        order.billing_detail_first_name = bill_to.first_name
+        order.billing_detail_last_name = bill_to.last_name
+        order.billing_detail_street = bill_to.street
+        order.billing_detail_street2 = bill_to.street2
+        order.billing_detail_country = bill_to.country
+        order.billing_detail_postcode = bill_to.postcode
+        order.billing_detail_city = bill_to.city
+        order.billing_detail_state = bill_to.state
+        order.billing_detail_phone = bill_to.phone
+        return order
+
+    def _process_payment(self, order):
+        # TODO-VME: so here we need to be looking at reponse codes and potentially
+        # throwing checkout errors....what do we want to do if their payment
+        # fails or we deem them too risky? Just show them the error message
+        # and leave them at this page, so they can try again (which will probably be
+        # fruitless) or abort them? I prefer abort them.
+        ap_confirm_purchase(order, self.call_id)
+        auth_result = ap_auth(order, self.call_id)
+
+        # Log the transaction to Decision Manager
+        risk_indicator = getattr(
+            getattr(auth_result, 'apReply', None),
+            'riskIndicator', None
+        )
+        order = self._update_order_billing_details(auth_result, order)
+        if risk_indicator:
+            # Update order with billing details from ap_auth
+            try:
+                afs(order, self.call_id, risk_indicator)
+            except CybersourceRequiresReview:
+                order.status = ORDER_REVIEW
+            else:
+                order.status = ORDER_PROCESSED
+        order.save()
+        # Now capture their money
+        return ap_capture(order, auth_result.requestID)
+
+    def form_valid(self, form, shipping_form, discount_form):
+        order = form.save(commit=False)
+        order.setup(self.request)
+        # Make sure we set payment_gateway_transaction_id, for audit trail purposes
+        order.payment_gateway_transaction_id = self.tid
+
+        if self._confirming_and_paying:
+            order.save()
+            self._abort_if_no_stock(order)
+            try:
+                capture_result = self._process_payment(order)
+                for field_name, value in form.cleaned_data.iteritems():
+                    if hasattr(order, field_name) and value:
+                        setattr(order, field_name, value)
+                order.shipping_total = self.shipping_type.charge
+                order.payment_gateway_transaction_type = settings.VME
+                response = finalise_order(
+                    # TODO-VME: maybe this should be something different from the ap_auth.requestID
+                    # this should probably be I think auth_result.apReply.orderID which is
+                    # actually the call_id from V.Me
+                    capture_result.requestID,
+                    self.request,
+                    order,
+                    form.cleaned_data
+                )
+                order.save()
+                return response
+            except (VMeFlowError, checkout.CheckoutError):
+                return self._abort(order)
+        else:
+            return self._confirmation_response(
+                self.request, order, form, shipping_form,
+                self.shipping_type.charge, discount_form, self.call_id
+            )
+
+    def form_invalid(self, form, shipping_form, discount_form):
+        form_class = self.form_classes['order']
+        form_args = self.get_form_kwargs()
+        form_args['hidden'] = self.EVERYTHING_EXCEPT_SHIPPING
+        order_form = form_class(self.request, checkout.CHECKOUT_STEP_FIRST, **form_args)
+        order_form.is_valid()
+        # TODO-VME: We have a problem here because the order doesn't exist yet
+        # but the template requires it...different in paypal cos the order was
+        # created at an earlier point
+        return self._confirmation_response(
+            self.request, order, order_form, shipping_form,
+            self.shipping_type.charge, discount_form, self.call_id
+        )
+
+    def get_form(self, form_class):
+        kwargs = self.get_form_kwargs()
+        return form_class(self.request, checkout.CHECKOUT_STEP_FIRST, **kwargs)
+
+    def get_form_class(self):
+        return self.form_classes['order']
+
+    def get_form_kwargs(self):
+        initial = self.get_initial()
+        return {
+            'initial': initial,
+            'data': initial
+        }
+
+    def get_initial(self):
+        self._set_tid(self.request)
+
+        if self._confirming_and_paying:
+            self.shipping_detail_country = self.request.POST.get('shipping_detail_country')
+            self.discount_code = self.request.POST.get("discount_code", None)
+            shipping_type_id = self.request.POST.get('id')
+
+            self.what_to_hide = self.EVERYTHING_EXCEPT_SHIPPING
+            data = {k: v for k, v in self.request.POST.iteritems()
+                if not k in ['order_payment_gateway_transaction_id', 'callId']}
+        else:
+            checkout_details = self._get_checkout_details(self.request),
+            data = self._build_order_form_data(
+                checkout_details,
+                self.request.session.get('order', dict()),
+                self.tid
+            )
+            # TODO-VME: These may need to be changed
+            self.shipping_detail_country = checkout_details['shipping_detail_country']
+            self.discount_code = self.request.session.get('discount_code')
+            shipping_type_id = self.request.session.get('shipping_type')
+
+        self.shipping_type = get_freight_type_for_id(self.request.session.get('currency'), shipping_type_id)
+        self.request.session['shipping_type'] = self.shipping_type.id
+        return data
+
+    def get_discount_form(self):
+        return DiscountForm(self.request, {'discount_code': self.discount_code})
+
+    def get_shipping_form(self):
+        form = ShippingForm(
+            self.request,
+            self.request.session.get('currency'),
+            initial={'id': self.shipping_type_id}
+        )
+        if not is_valid_shipping_choice(self.request.session.get('currency'), self.shipping_type_id, self.shipping_detail_country):
+            form.errors['id'] = 'The chosen shipping option is invalid for the destination country.'
+        return form
+
+    def post(self, request, *args, **kwargs):
+        form_class = self.get_form_class()
+        form = self.get_form(form_class)
+
+        discount_form = self.get_discount_form()
+        shipping_form = self.get_shipping_form()
+
+        if form.is_valid() and discount_form.is_valid() and not shipping_form.errors:
+            return self.form_valid(form, shipping_form, discount_form)
+        else:
+            return self.form_invalid(form, shipping_form, discount_form)
+
+
 @csrf_exempt
 def return_from_checkout_with_vme(request):
     # merchTrans contains the cart.id and so will order_payment_gateway_transaction_id on the
@@ -685,26 +990,22 @@ def return_from_checkout_with_vme(request):
     order.shipping_total = shipping_type.charge
     order.payment_gateway_transaction_type = settings.VME
     try:
-        # TODO-VME: this is where the decision manager stuff will happen
-
-        # so here we need to be looking at reponse codes and potentially
+        # TODO-VME: so here we need to be looking at reponse codes and potentially
         # throwing checkout errors....what do we want to do if their payment
         # fails or we deem them too risky? Just show them the error message
         # and leave them at this page, so they can try again (which will probably be
         # fruitless) or abort them? I prefer abort them.
 
-        # TODO-VME: make sure all this gets logged
         ap_confirm_purchase(order, call_id)
         auth_result = ap_auth(order, call_id)
 
         # Log the transaction to Decision Manager
-        # TODO-VME: Move this to above the ap_capture() call
         risk_indicator = getattr(
             getattr(auth_result, 'apReply', None),
             'riskIndicator', None
         )
+        order = vme_update_order_billing_details(auth_result, order)
         if risk_indicator:
-            order = vme_update_order_billing_details(auth_result, order)
             # Update order with billing details from ap_auth
             try:
                 afs_result = afs(order, call_id, risk_indicator)
