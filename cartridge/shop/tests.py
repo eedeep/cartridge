@@ -1,23 +1,43 @@
 import unittest
+import copy
 from itertools import repeat
 
 from datetime import datetime, timedelta
 from decimal import Decimal
 from operator import mul
 
+import factory
+
 from django.core.urlresolvers import reverse
 from django.contrib.sites.models import Site
-from django.test import TestCase
+from django.contrib.auth.models import AnonymousUser
+from django.test import TestCase, RequestFactory
 from django.test.utils import override_settings
+from django.utils.importlib import import_module
+
 from mezzanine.conf import settings
 from mezzanine.core.models import CONTENT_STATUS_PUBLISHED
 from mezzanine.utils.tests import run_pyflakes_for_package
 from mezzanine.utils.tests import run_pep8_for_package
 
 from cartridge.shop.models import Product, ProductOption, ProductVariation
-from cartridge.shop.models import Category, Cart, Order, DiscountCode, BundleDiscount
+from cartridge.shop.models import Category, Cart, CartItem, Order, \
+    DiscountCode, BundleDiscount
 from cartridge.shop.checkout import CHECKOUT_STEPS
 from multicurrency.models import MultiCurrencyCart
+
+from cartridge.shop.views import ReturnFromVme
+
+from mock import patch, Mock, MagicMock
+
+from suds import WebFault
+
+from cottonon_shop.cybersource_logger import CybersourceLogger
+from cottonon_shop.cybersource import _get_cybersource_client
+from cottonon_shop.cybersource_exceptions import CybersourceRequiresReview, \
+    CybersourceError
+
+from countries.models import Country
 
 TEST_STOCK = settings.STOCK_THRESHOLD + 1
 TEST_PRICE = Decimal("20")
@@ -628,3 +648,204 @@ class DiscountTests(TestCase):
                 # clear cart
                 for item in cart.items.all():
                     item.delete()
+
+
+class CountryFactory(factory.Factory):
+    FACTORY_FOR = Country
+
+    iso = 'AU'
+    name = 'AUSTRALIA'
+    printable_name = 'Australia'
+    iso3 = 'AUS'
+    numcode = 36
+    rms_code = 'AUST'
+
+
+class CartFactory(factory.Factory):
+    FACTORY_FOR = Cart
+
+    currency = 'AUD'
+    last_updated = datetime.now()
+
+
+class CartItemFactory(factory.Factory):
+    FACTORY_FOR = CartItem
+
+    cart = factory.SubFactory(CartFactory)
+    _unit_price_aud = None
+    _unit_price_nzd = None
+    sku = '2041102712383'
+    description = 'lindsay slipper :: 411027-12 Style: ELECTRIC, Size: 38'
+    quantity = 1
+    unit_price = Decimal(29.95)
+    total_price = Decimal(29.95)
+    url = '/shop/product/lindsay-slipper-electric/'
+    image = 'products/images/411027/411027-12-1.JPG'
+    bundle_quantity = 0
+    discount_unit_price = Decimal(29.95)
+    bundle_unit_price = Decimal(29.95)
+    bundle_title = None
+
+
+class MockSession(object):
+    def __init__(self):
+        self.values = {}
+    def __getitem__(self, name):
+        return self.values[name]
+    def __setitem__(self, name, value):
+        self.values[name] = value
+    def __delitem__(self, name):
+        del self.values[name]
+    def __iter__(self):
+        return iter(self.values)
+    def get(self, name, default=None):
+        return self.values[name]
+
+
+class ReturnFromVmeTest(TestCase):
+    MERCH_TRANS = 9999
+    CALL_ID = 101362900
+    SESSION_KEY = '00001b800e6fe648cef889e0a44c7c5f'
+    api_client = None
+    cart = None
+    session = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api_client = _get_cybersource_client('AUD')
+        CountryFactory.create()
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.cart = CartFactory.create()
+        CartItemFactory.create(cart=self.cart)
+        # Create a session to add to our request
+        engine = import_module(settings.SESSION_ENGINE)
+        self.session = engine.SessionStore(session_key=self.SESSION_KEY)
+
+    @patch('cartridge.shop.views.ap_checkout_details')
+    def test_inbound_valid_cart_flow(self, mock_ap_checkout_details):
+        request = self.factory.post(
+            reverse('return_from_checkout_with_vme'),
+            data={
+                'merchTrans': self.MERCH_TRANS,
+                'callId': self.CALL_ID,
+            },
+        )
+
+        request.session = self.session
+        request.session['currency'] = 'AUD'
+        request.session['shipping_type'] = 'AUSTRALIA'
+        request.session['cart'] = self.cart
+        request.cart = self.cart
+        request.user = AnonymousUser()
+        request.wishlist = []
+
+        # mock ap_checkout_details response
+        checkout_details_response = MagicMock()
+        checkout_details_response.billTo = self.api_client.factory.create('ns0:BillTo')
+        checkout_details_response.shipTo = self.api_client.factory.create('ns0:ShipTo')
+        checkout_details_response.apReply = self.api_client.factory.create('ns0:APReply')
+        # configure mock billTo
+        billTo_fields = ['email',]
+        for attr in copy.copy(checkout_details_response.billTo):
+            if attr[0] not in billTo_fields:
+                delattr(checkout_details_response.billTo, attr[0])
+        checkout_details_response.billTo.email = 'dan@commoncode.com.au'
+        # configure mock shipTo
+        shipTo_fields = ['street1', 'city', 'state', 'postalCode', 'country', \
+            'phoneNumber', 'name', ]
+        for attr in copy.copy(checkout_details_response.shipTo):
+            if attr[0] not in shipTo_fields:
+                delattr(checkout_details_response.shipTo, attr[0])
+        checkout_details_response.shipTo.street1 = "114 Murray Rd"
+        checkout_details_response.shipTo.city = "Preston"
+        checkout_details_response.shipTo.state = "VIC"
+        checkout_details_response.shipTo.postalCode = "3072"
+        checkout_details_response.shipTo.country = "AU"
+        checkout_details_response.shipTo.phoneNumber = "0422987423"
+        checkout_details_response.shipTo.name = "dan peade"
+        # configure reasonCode
+        checkout_details_response.reasonCode = 100
+        mock_ap_checkout_details.return_value = checkout_details_response
+
+        # call the view
+        view = ReturnFromVme.as_view()
+        view(request)
+
+        """
+         (reply){
+           merchantReferenceCode = "10599248"
+           requestID = "3784207930620176056470"
+           decision = "ACCEPT"
+           reasonCode = 100
+           requestToken = "AhjjrwSRmkjejpy/SoEsjJ+5RPOl+EgAywhk0kyxdfA3PFIzSRvR05fpUCWAaF8C"
+           purchaseTotals =
+              (PurchaseTotals){
+                 currency = "AUD"
+              }
+           apReply =
+              (APReply){
+                 orderID = "101700950"
+                 purchaseID = "10599248"
+                 productID = "10599248"
+                 productDescription = "10599248"
+                 subtotalAmount = "19.95"
+              }
+           billTo =
+              (BillTo){
+                 email = "dan@commoncode.com.au"
+              }
+           apCheckoutDetailsReply =
+              (APCheckOutDetailsReply){
+                 reasonCode = 100
+                 status = "CREATED"
+                 dateTime = "2013-09-05T22:39:54Z"
+                 providerResponse = "200"
+              }
+         }
+
+
+         (reply){
+           merchantReferenceCode = "10599246"
+           requestID = "3784203523400176056442"
+           decision = "ACCEPT"
+           reasonCode = 100
+           requestToken = "AhjjrwSRmki/Pe0CMnD0jJ+v9LncSEgAywhk0kyxdfA3PFIzSRfnvaBGTh6Axwg+"
+           purchaseTotals =
+              (PurchaseTotals){
+                 currency = "AUD"
+              }
+           apReply =
+              (APReply){
+                 orderID = "101700937"
+                 purchaseID = "10599246"
+                 productID = "10599246"
+                 productDescription = "10599246"
+                 subtotalAmount = "19.95"
+              }
+           shipTo =
+              (ShipTo){
+                 street1 = "114 Murray Rd"
+                 city = "Preston"
+                 state = "VIC"
+                 postalCode = "3072"
+                 country = "AU"
+                 phoneNumber = "0422987423"
+                 name = "dan peade"
+              }
+           billTo =
+              (BillTo){
+                 email = "dan@commoncode.com.au"
+              }
+           apCheckoutDetailsReply =
+              (APCheckOutDetailsReply){
+                 reasonCode = 100
+                 status = "CREATED"
+                 dateTime = "2013-09-05T22:32:33Z"
+                 providerResponse = "200"
+              }
+         }
+
+        """
+

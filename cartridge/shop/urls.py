@@ -1,6 +1,8 @@
 
 from django.conf.urls.defaults import patterns, url
 
+from cartridge.shop.views import ReturnFromVme
+
 
 urlpatterns = patterns("cartridge.shop.views",
     url("^return-from-checkout-with-paypal/$", "return_from_checkout_with_paypal", name="return_from_checkout_with_paypal"),
@@ -15,7 +17,7 @@ urlpatterns = patterns("cartridge.shop.views",
     url('^checkout/cybersource-complete/$', 'cybersource_complete', name='cybersource_complete'),
     url("^checkout/aborted/(?P<transaction_slug>.*)/$", "abort", name="shop_abort"),
     url("^invoice/(?P<order_id>\d+)/$", "invoice", name="shop_invoice"),
-    url("^return-from-checkout-with-vme/$", "return_from_checkout_with_vme", name="return_from_checkout_with_vme"),
+    url("^return-from-checkout-with-vme/$", ReturnFromVme.as_view(), name="return_from_checkout_with_vme"),
     url(r"^vme-button/$", "vme_button", name="vme_button"),
     #url("^check_unprocessed_orders/(?P<lookback_minutes>.*)/(?P<threshold_minutes>.*)/$", "check_unprocessed_orders"),
     #url("^search/$", "search", name="shop_search"),

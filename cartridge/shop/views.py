@@ -7,6 +7,7 @@ import time
 import re
 from urllib2 import urlopen, URLError
 from decimal import Decimal
+from datetime import datetime
 
 logger = logging.getLogger("cottonon")
 logger_payments = logging.getLogger("payments")
@@ -30,6 +31,7 @@ from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
 from django.views.generic import FormView
 from django.forms.models import model_to_dict
 
@@ -558,7 +560,6 @@ def get_cybersource_device_fingerprint_context():
     return context
 
 
-
 class ReturnFromVme(FormView):
     EVERYTHING = None
     EVERYTHING_EXCEPT_SHIPPING = lambda f: not (f.startswith('shipping_'))
@@ -587,6 +588,10 @@ class ReturnFromVme(FormView):
         self.discount_code = None
         super(ReturnFromVme, self).__init__(*args, **kwargs)
 
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super(FormView, self).dispatch(*args, **kwargs)
+
     def _abort(self, order):
         # Revert product stock changes and delete order
         for item in self.request.cart:
@@ -602,16 +607,15 @@ class ReturnFromVme(FormView):
         return render(self.request, 'shop/vme_aborted.html')
 
     def _set_tid(self, request):
-        try:
-            self.tid = request.POST.get('order_payment_gateway_transaction_id')
+        self.tid = request.POST.get('order_payment_gateway_transaction_id', None)
+        if self.tid:
             self.confirming_and_paying = True
-        except KeyError:
-            try:
-                self.tid = request.POST.get('merchTrans')
-            except KeyError:
+        else:
+            self.tid = request.POST.get('merchTrans')
+            if not self.tid:
                 raise VMeFlowError("No order.payment_gateway_transaction_id '\
                 'or merchTrans to find or create order with!")
-        self.call_id = request.POST.get('callId'),
+        self.call_id = request.POST.get('callId')
 
     def _abort_if_no_stock(self, order):
         no_stock = []
@@ -629,9 +633,14 @@ class ReturnFromVme(FormView):
 
     def _get_checkout_details(self, request):
         try:
-            return ap_checkout_details(self.call_id, session_currency(request), self.tid)
+            result = ap_checkout_details(
+                self.call_id,
+                session_currency(request),
+                self.tid
+            )
         except CybersourceResponseException as e:
             raise e
+        return result
 
     def _build_order_form_data(self, vme_checkout_details, checkout_form_data):
         """
@@ -746,13 +755,40 @@ class ReturnFromVme(FormView):
         # Now capture their money
         return ap_capture(order, auth_result.requestID)
 
+    def _confirmation_response(self, order, order_form, shipping_form, shipping_total, discount_form, call_id, no_stock=[], checkout_errors=[]):
+        """Return the rendered the confirmation page, to display when the user
+        returns to our site from the PayPal site."""
+        step_vars = checkout.CHECKOUT_STEPS[2]
+        order_form.label_suffix = ''
+        context = {
+            'order': order,
+            'form': order_form,
+            'CHECKOUT_STEP_FIRST': False,
+            'extends_template': 'base.html',
+            'step_title': step_vars['title'],
+            'step_url': step_vars['url'],
+            'steps': checkout.CHECKOUT_STEPS,
+            'step': 2,
+            'no_stock': no_stock,
+            'checkout_errors': checkout_errors,
+            'shipping_form': shipping_form,
+            'shipping_total': shipping_total,
+            'discount_form': discount_form,
+            'call_id': call_id
+        }
+        return render(
+            self.request,
+            "shop/checkout_with_vme_confirmation.html",
+            context
+        )
+
     def form_valid(self, form, shipping_form, discount_form):
         order = form.save(commit=False)
         order.setup(self.request)
         # Make sure we set payment_gateway_transaction_id, for audit trail purposes
         order.payment_gateway_transaction_id = self.tid
 
-        if self._confirming_and_paying:
+        if self.confirming_and_paying:
             order.save()
             self._abort_if_no_stock(order)
             try:
@@ -777,7 +813,7 @@ class ReturnFromVme(FormView):
                 return self._abort(order)
         else:
             return self._confirmation_response(
-                self.request, order, form, shipping_form,
+                order, form, shipping_form,
                 self.shipping_type.charge, discount_form, self.call_id
             )
 
@@ -791,7 +827,7 @@ class ReturnFromVme(FormView):
         # but the template requires it...different in paypal cos the order was
         # created at an earlier point
         return self._confirmation_response(
-            self.request, order, order_form, shipping_form,
+            order, order_form, shipping_form,
             self.shipping_type.charge, discount_form, self.call_id
         )
 
@@ -812,7 +848,7 @@ class ReturnFromVme(FormView):
     def get_initial(self):
         self._set_tid(self.request)
 
-        if self._confirming_and_paying:
+        if self.confirming_and_paying:
             self.shipping_detail_country = self.request.POST.get('shipping_detail_country')
             self.discount_code = self.request.POST.get("discount_code", None)
             shipping_type_id = self.request.POST.get('id')
@@ -821,18 +857,17 @@ class ReturnFromVme(FormView):
             data = {k: v for k, v in self.request.POST.iteritems()
                 if not k in ['order_payment_gateway_transaction_id', 'callId']}
         else:
-            checkout_details = self._get_checkout_details(self.request),
+            checkout_details = self._get_checkout_details(self.request)
             data = self._build_order_form_data(
                 checkout_details,
                 self.request.session.get('order', dict()),
-                self.tid
             )
             # TODO-VME: These may need to be changed
-            self.shipping_detail_country = checkout_details['shipping_detail_country']
+            self.shipping_detail_country = data['shipping_detail_country']
             self.discount_code = self.request.session.get('discount_code')
             shipping_type_id = self.request.session.get('shipping_type')
 
-        self.shipping_type = get_freight_type_for_id(self.request.session.get('currency'), shipping_type_id)
+        self.shipping_type = get_freight_type_for_id(session_currency(self.request), shipping_type_id)
         self.request.session['shipping_type'] = self.shipping_type.id
         return data
 
@@ -842,10 +877,10 @@ class ReturnFromVme(FormView):
     def get_shipping_form(self):
         form = ShippingForm(
             self.request,
-            self.request.session.get('currency'),
-            initial={'id': self.shipping_type_id}
+            session_currency(self.request),
+            initial={'id': self.shipping_type.id}
         )
-        if not is_valid_shipping_choice(self.request.session.get('currency'), self.shipping_type_id, self.shipping_detail_country):
+        if not is_valid_shipping_choice(session_currency(self.request), self.shipping_type.id, self.shipping_detail_country):
             form.errors['id'] = 'The chosen shipping option is invalid for the destination country.'
         return form
 
