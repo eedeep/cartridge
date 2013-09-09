@@ -1,5 +1,7 @@
+import pudb
 import unittest
 import copy
+from collections import namedtuple
 from itertools import repeat
 
 from datetime import datetime, timedelta
@@ -650,9 +652,9 @@ class DiscountTests(TestCase):
                     item.delete()
 
 
+
 class CountryFactory(factory.Factory):
     FACTORY_FOR = Country
-
     iso = 'AU'
     name = 'AUSTRALIA'
     printable_name = 'Australia'
@@ -663,14 +665,12 @@ class CountryFactory(factory.Factory):
 
 class CartFactory(factory.Factory):
     FACTORY_FOR = Cart
-
     currency = 'AUD'
     last_updated = datetime.now()
 
 
 class CartItemFactory(factory.Factory):
     FACTORY_FOR = CartItem
-
     cart = factory.SubFactory(CartFactory)
     _unit_price_aud = None
     _unit_price_nzd = None
@@ -687,25 +687,95 @@ class CartItemFactory(factory.Factory):
     bundle_title = None
 
 
-class MockSession(object):
-    def __init__(self):
-        self.values = {}
-    def __getitem__(self, name):
-        return self.values[name]
-    def __setitem__(self, name, value):
-        self.values[name] = value
-    def __delitem__(self, name):
-        del self.values[name]
-    def __iter__(self):
-        return iter(self.values)
-    def get(self, name, default=None):
-        return self.values[name]
+class ProductFactory(factory.Factory):
+    FACTORY_FOR = Product
+    _unit_price_aud = Decimal(29.95)
+    _sale_price_aud = None
+    _was_price_aud = Decimal(29.95)
+    _unit_price_nzd = Decimal(34.95)
+    _sale_price_nzd = None
+    _was_price_nzd = Decimal(34.95)
+    keywords_string = ''
+    rating_count = 0
+    rating_average = 0
+    title = 'lindsay slipper'
+    slug = 'lindsay-slipper-electric'
+    site_id = 1
+    description = 'Slip on flat'
+    gen_description = 1
+    status = 2
+    publish_date = '2012-08-16 12:39:58'
+    expiry_date = None
+    short_url = None
+    content = 'Slip on flat'
+    unit_price = Decimal(29.95)
+    sale_id = None
+    sale_price = None
+    sale_from = None
+    sale_to = None
+    available = 1
+    master_item_code = '411027-12'
+    image = 'products/images/411027/411027-12-1.JPG'
+    date_added = '2012-08-16 12:39:58'
+    featured = 0
+    in_stock = 1
+    ranking = 12
+    product_colours = '411027-12'
+    product_sizes = '39,38,37,36,40,41'
+    sync_images = 0
+    sync_stock = 0
+    date_images_last_synced = None
+    date_stock_last_synced = None
+    first_published_date = None
+    bundle_discount_id = None
+    rms_category_id = None
+    date_price_last_modified = None
+
+
+class ProductVariationFactory(factory.Factory):
+    FACTORY_FOR = ProductVariation
+    product = factory.SubFactory(ProductFactory)
+    _unit_price_aud = Decimal(29.95)
+    _sale_price_aud = None
+    _was_price_aud = Decimal(29.95)
+    _unit_price_nzd = Decimal(34.95)
+    _sale_price_nzd = None
+    _was_price_nzd = Decimal(34.95)
+    unit_price = Decimal(29.95)
+    sale_id = None
+    sale_price = None
+    sale_from = None
+    sale_to = None
+    num_in_stock_pool = 0
+    sku = 2041102712383
+    num_in_stock = 100
+    default = 1
+    image_id = 11936
+    option1 = '411027-12'
+    option2 = 36
+    bundle_discount_id = None
 
 
 class ReturnFromVmeTest(TestCase):
     MERCH_TRANS = 9999
     CALL_ID = 101362900
     SESSION_KEY = '00001b800e6fe648cef889e0a44c7c5f'
+    TYPE_MAP = {
+        'billTo': 'BillTo',
+        'shipTo': 'ShipTo',
+        'apReply': 'APReply',
+    }
+    ShippingDetails = namedtuple('ShippingDetails', [
+        'street1',
+        'city',
+        'state',
+        'postalCode',
+        'country',
+        'phoneNumber',
+        'name',
+    ])
+    BillingDetails = namedtuple('BillingDetails', ['email', ])
+    ApReply = namedtuple('ApReply', ['riskIndicator', ])
     api_client = None
     cart = None
     session = None
@@ -717,14 +787,36 @@ class ReturnFromVmeTest(TestCase):
 
     def setUp(self):
         self.factory = RequestFactory()
+        product = ProductFactory.create()
+        ProductVariationFactory.create(product=product)
         self.cart = CartFactory.create()
         CartItemFactory.create(cart=self.cart)
         # Create a session to add to our request
         engine = import_module(settings.SESSION_ENGINE)
         self.session = engine.SessionStore(session_key=self.SESSION_KEY)
 
+    def mock_api_response(self, attrs):
+        response = MagicMock()
+        for attr, value in attrs.iteritems():
+            if isinstance(value, tuple):
+                setattr(response, attr, self.api_client.factory.create('ns0:{t}'.format(t=self.TYPE_MAP[attr])))
+                for a in copy.copy(getattr(response, attr)):
+                    if a[0] not in value._fields:
+                        delattr(getattr(response, attr), a[0])
+                for a in value._fields:
+                    setattr(getattr(response, attr), a, getattr(value, a))
+            else:
+                setattr(response, attr, value)
+        return response
+
+    @patch('cartridge.shop.views.ap_capture')
+    @patch('cartridge.shop.views.afs')
+    @patch('cartridge.shop.views.ap_auth')
+    @patch('cartridge.shop.views.ap_confirm_purchase')
     @patch('cartridge.shop.views.ap_checkout_details')
-    def test_inbound_valid_cart_flow(self, mock_ap_checkout_details):
+    def test_inbound_valid_cart_flow(self, mock_ap_checkout_details, \
+        mock_ap_confirm_purchase, mock_ap_auth, mock_afs, mock_ap_capture):
+
         request = self.factory.post(
             reverse('return_from_checkout_with_vme'),
             data={
@@ -742,38 +834,133 @@ class ReturnFromVmeTest(TestCase):
         request.wishlist = []
 
         # mock ap_checkout_details response
-        checkout_details_response = MagicMock()
-        checkout_details_response.billTo = self.api_client.factory.create('ns0:BillTo')
-        checkout_details_response.shipTo = self.api_client.factory.create('ns0:ShipTo')
-        checkout_details_response.apReply = self.api_client.factory.create('ns0:APReply')
-        # configure mock billTo
-        billTo_fields = ['email',]
-        for attr in copy.copy(checkout_details_response.billTo):
-            if attr[0] not in billTo_fields:
-                delattr(checkout_details_response.billTo, attr[0])
-        checkout_details_response.billTo.email = 'dan@commoncode.com.au'
-        # configure mock shipTo
-        shipTo_fields = ['street1', 'city', 'state', 'postalCode', 'country', \
-            'phoneNumber', 'name', ]
-        for attr in copy.copy(checkout_details_response.shipTo):
-            if attr[0] not in shipTo_fields:
-                delattr(checkout_details_response.shipTo, attr[0])
-        checkout_details_response.shipTo.street1 = "114 Murray Rd"
-        checkout_details_response.shipTo.city = "Preston"
-        checkout_details_response.shipTo.state = "VIC"
-        checkout_details_response.shipTo.postalCode = "3072"
-        checkout_details_response.shipTo.country = "AU"
-        checkout_details_response.shipTo.phoneNumber = "0422987423"
-        checkout_details_response.shipTo.name = "dan peade"
-        # configure reasonCode
-        checkout_details_response.reasonCode = 100
-        mock_ap_checkout_details.return_value = checkout_details_response
+        mock_ap_checkout_details.return_value = self.mock_api_response({
+            'reasonCode': 100,
+            'billTo': self.BillingDetails(email='dan@commoncode.com.au'),
+            'shipTo': self.ShippingDetails(
+                street1="114 Murray Rd",
+                city="Preston",
+                state="VIC",
+                postalCode="3072",
+                country="AU",
+                phoneNumber="0422987423",
+                name="dan peade",
+            )
+        })
 
-        # call the view
+        # call the view, see the confirmation page
         view = ReturnFromVme.as_view()
-        view(request)
+        response = view(request)
+        # TODO-VME: So here we can do some tests to make sure the right
+        # form elements and values are there in the rendered response
+
+        # now hit the view again, to confirm and do the payment
+        request = self.factory.post(
+            reverse('return_from_checkout_with_vme'),
+            data={
+                'additional_instructions': '',
+                'billing_detail_city': 'PRESTON',
+                'billing_detail_country': 'AUSTRALIA',
+                'billing_detail_email': 'dan@commoncode.com.au',
+                'billing_detail_first_name': 'dan',
+                'billing_detail_last_name': 'peade',
+                'billing_detail_phone': '0422987423',
+                'billing_detail_postcode': '3072',
+                'billing_detail_state': 'VIC',
+                'billing_detail_street': '114 Murray Rd',
+                'billing_detail_street2': 'Preston',
+                'callId': '101735127',
+                'card_ccv': '',
+                'card_expiry_month': '12',
+                'card_expiry_year': '2013',
+                'card_name': '',
+                'card_number': '',
+                'card_type': '',
+                'csrfmiddlewaretoken': 'o37a6cTQkUvDxhwmYkLOG7TwlGzyKof9',
+                'discount_code': '',
+                'gender': '',
+                'id': 'AUSTRALIA',
+                'order_payment_gateway_transaction_id': '10599253',
+                'privacy_policy': 'False',
+                'remember': 'False',
+                'same_billing_shipping': 'on',
+                'shipping_detail_city': 'PRESTON',
+                'shipping_detail_country': 'AUSTRALIA',
+                'shipping_detail_first_name': 'dan',
+                'shipping_detail_last_name': 'peade',
+                'shipping_detail_phone': '0000 0000',
+                'shipping_detail_postcode': '3072',
+                'shipping_detail_state': 'VIC',
+                'shipping_detail_street': '114 Murray Rd',
+                'shipping_detail_street2': 'Preston',
+                'step': '1',
+                'subscribe': 'False',
+                'terms': 'on',
+            },
+        )
+        request.session = self.session
+        request.cart = self.cart
+        request.user = AnonymousUser()
+        request.wishlist = []
+
+        # configure the ap_confirm_purchase response
+        mock_ap_confirm_purchase.return_value = self.mock_api_response({'reasonCode': 100})
+        # configure the ap_auth response
+        mock_ap_auth.return_value = self.mock_api_response({
+            'reasonCode': 100,
+            'apReply': self.ApReply(riskIndicator='LOW'),
+            'billTo': self.ShippingDetails(
+                phoneNumber="0422987423",
+                name="dan peade",
+                street1="114 Murray Rd",
+                city="Preston",
+                state="VIC",
+                country="AU",
+                postalCode="3072",
+            )
+        })
+        # configure the afs response
+        mock_afs.return_value = self.mock_api_response({'reasonCode': 100})
+        # configure the ap_capture response
+        mock_ap_capture.return_value = self.mock_api_response({
+            'reasonCode': 100,
+            'requestID': "3786975141980176056428"
+        })
+
+        view = ReturnFromVme.as_view()
+        response = view(request)
 
         """
+         ******************************************
+         * ap_confirm_purchase reply              *
+         ******************************************
+         (reply){
+           merchantReferenceCode = "10599253"
+           requestID = "3786974994670176056442"
+           decision = "ACCEPT"
+           reasonCode = 100
+           requestToken = "AhjjrwSRmpWrusxVTGj0jJ+uGAndoEgv5ZlnDJpJli6+BueKRmpWrusxVTGj0AAA/h75"
+           purchaseTotals =
+              (PurchaseTotals){
+                 currency = "AUD"
+              }
+           apReply =
+              (APReply){
+                 orderID = "101735127"
+                 riskIndicator = "LOW"
+              }
+           apConfirmPurchaseReply =
+              (APConfirmPurchaseReply){
+                 reasonCode = 100
+                 amount = "19.95"
+                 dateTime = "2013-09-09T03:31:41Z"
+                 providerResponse = "200"
+              }
+         }
+
+         ******************************************
+         * ap_checkout_details reply payment flow *
+         ******************************************
          (reply){
            merchantReferenceCode = "10599248"
            requestID = "3784207930620176056470"
@@ -805,7 +992,9 @@ class ReturnFromVmeTest(TestCase):
               }
          }
 
-
+         ******************************************
+         * ap_checkout_details reply cart flow    *
+         ******************************************
          (reply){
            merchantReferenceCode = "10599246"
            requestID = "3784203523400176056442"
@@ -847,5 +1036,104 @@ class ReturnFromVmeTest(TestCase):
               }
          }
 
-        """
+         *****************************
+         * ap_auth reply             *
+         *****************************
+         (reply){
+           merchantReferenceCode = "10599253"
+           requestID = "3786975045870176056428"
+           decision = "ACCEPT"
+           reasonCode = 100
+           requestToken = "AhjzrwSRmpWsF+4w7GjYjAKfr/TgLPBIL+WZZwyaSZYuvgbnikZqVrBfuMOxo2AA0DmF"
+           purchaseTotals =
+              (PurchaseTotals){
+                 currency = "AUD"
+              }
+           apReply =
+              (APReply){
+                 orderID = "101735127"
+                 cardGroup = "CreditCardDebitCard"
+                 cardType = "VISA"
+                 cardNumberSuffix = "1111"
+                 cardExpirationMonth = "10"
+                 cardExpirationYear = "2013"
+                 avsCodeRaw = "1"
+                 cardNumberPrefix = "411111"
+                 riskIndicator = "LOW"
+              }
+           billTo =
+              (BillTo){
+                 phoneNumber = "0422987423"
+                 name = "dan peade"
+                 street1 = "114 Murray Rd"
+                 city = "Preston"
+                 state = "VIC"
+                 country = "AU"
+                 postalCode = "3072"
+              }
+           apAuthReply =
+              (APAuthReply){
+                 reasonCode = 100
+                 transactionID = "100940140"
+                 status = "AUTHORIZED"
+                 amount = "19.95"
+                 dateTime = "2013-09-09T03:31:48Z"
+                 providerResponse = "200"
+              }
+         }
 
+         *****************************
+         * afs reply *
+         *****************************
+         (reply){
+           merchantReferenceCode = "380170"
+           requestID = "3786975120150176056428"
+           decision = "REVIEW"
+           reasonCode = 480
+           requestToken = "AhjjrwSRmpWsnwuC84jYFJ+sOzhACEgv5ZlmvBpJli6+BueKRmpWsnwuC84jYAAAPxUw"
+           afsReply =
+              (AFSReply){
+                 reasonCode = 100
+                 afsResult = 4
+                 hostSeverity = 1
+                 consumerLocalTime = "13:31:52"
+                 afsFactorCode = "N"
+                 scoreModelUsed = "default_apac"
+              }
+           decisionReply =
+              (DecisionReply){
+                 casePriority = 3
+                 activeProfileReply = ""
+              }
+         }
+
+         *****************************
+         * ap_capture                *
+         *****************************
+         (reply){
+           merchantReferenceCode = "10599253"
+           requestID = "3786975141980176056428"
+           decision = "ACCEPT"
+           reasonCode = 100
+           requestToken = "Ahj3rwSRmpWsxsDlvgDYjDLLNnZoTGsiJUksgFP1/pwFoAkF/LMs4ZNJMsXXwNzxSM1K1gv3GHY0bAAA8gTP"
+           purchaseTotals =
+              (PurchaseTotals){
+                 currency = "AUD"
+              }
+           apReply =
+              (APReply){
+                 orderID = "101735127"
+              }
+           apCaptureReply =
+              (APCaptureReply){
+                 reasonCode = 100
+                 transactionID = "100940141"
+                 status = "CAPTURED"
+                 amount = "19.95"
+                 dateTime = "2013-09-09T03:31:56Z"
+                 reconciliationID = "Y33YPL5HDTI2"
+                 providerResponse = "200"
+              }
+         }
+
+        """

@@ -604,6 +604,7 @@ class ReturnFromVme(FormView):
                 variation.num_in_stock += amount
                 variation.num_in_stock_pool += amount
         order.delete()
+        # TODO-VME: need to tweek up this template to how they want it
         return render(self.request, 'shop/vme_aborted.html')
 
     def _set_tid(self, request):
@@ -617,7 +618,7 @@ class ReturnFromVme(FormView):
                 'or merchTrans to find or create order with!")
         self.call_id = request.POST.get('callId')
 
-    def _abort_if_no_stock(self, order):
+    def _no_stock(self):
         no_stock = []
         cart = self.request.cart
         for cart_item in cart.has_no_stock():
@@ -626,10 +627,9 @@ class ReturnFromVme(FormView):
             cart_item.delete()
         if len(no_stock) != 0:
             delattr(cart, '_cached_items')
-#            log_no_stock_order_aborted(order, no_stock)
-#            order.delete()
-            # TODO-VME: need to tweek up this template to how they want it
-            return self._abort(order)
+            #log_no_stock_order_aborted(order, no_stock)
+            return True
+        return False
 
     def _get_checkout_details(self, request):
         try:
@@ -790,8 +790,9 @@ class ReturnFromVme(FormView):
 
         if self.confirming_and_paying:
             order.save()
-            self._abort_if_no_stock(order)
             try:
+                if self._no_stock():
+                    return self._abort(order)
                 capture_result = self._process_payment(order)
                 for field_name, value in form.cleaned_data.iteritems():
                     if hasattr(order, field_name) and value:
@@ -895,189 +896,6 @@ class ReturnFromVme(FormView):
             return self.form_valid(form, shipping_form, discount_form)
         else:
             return self.form_invalid(form, shipping_form, discount_form)
-
-
-@csrf_exempt
-def return_from_checkout_with_vme(request):
-    # merchTrans contains the cart.id and so will order_payment_gateway_transaction_id on the
-    # second and subsequent form submissions, so try to get that first and if not
-    # then use merchTrans. This might be the best way to distinguish between the
-    # post back from v.me and subsequent form submissions due to validation issues
-    # on the form  etc
-    everything_except_shipping = lambda f: not (f.startswith('shipping_'))
-    everything = None
-    order_payment_gateway_transaction_id = request.POST.get('order_payment_gateway_transaction_id', None)
-    call_id = request.POST.get('callId')
-    confirming_and_paying = False
-    if order_payment_gateway_transaction_id:
-        confirming_and_paying = True
-    else:
-        order_payment_gateway_transaction_id = request.POST.get('merchTrans', None)
-        if not order_payment_gateway_transaction_id:
-            raise VMeFlowError("No order.payment_gateway_transaction_id or merchTrans to find or create order with!")
-
-    try:
-        # TODO-VME: This should only be called once, when the post-back comes in when they're returning from the lightbox
-        vme_checkout_details = ap_checkout_details(order_payment_gateway_transaction_id, call_id, session_currency(request), order_payment_gateway_transaction_id)
-    except CybersourceResponseException:
-        # TODO-VME: This is just an example, but basically, whereever
-        # we are hitting the cybersource or vme API then we need to
-        # catch the appropriate exception(s) from the underlying call
-        # to _run_transaction and then do the appropriate thing. In
-        # this example, aborting the order may or may not be the
-        # appropriate thing to do. We need to clarify and confirm this.
-        return render(request, 'shop/vme_aborted.html')
-
-    order = get_order_from_merch_trans_number(request, order_payment_gateway_transaction_id, vme_checkout_details)
-
-    if confirming_and_paying:
-        shipping_type_id = request.POST.get('id')
-        shipping_detail_country = request.POST.get('shipping_detail_country')
-        discount_code = request.POST.get("discount_code", None)
-        order_form_data = {k: v for k, v in request.POST.iteritems()
-            if not k in ['order_payment_gateway_transaction_id', 'callId']}
-        what_to_hide = everything_except_shipping
-    else:
-        # it's the post back from v.me
-
-        # so if the post back is coming from cart-flow style checkout,
-        # we'll get back the v.me shipping address in shipTo from ap_checkout_details
-        # but if they've done a payment-flow style checkout, that won't be there so
-        # we just want the shipping details off the order, which they entered in
-        # the billing/shipping form
-        shipping_detail_country = order.shipping_detail_country
-        shipping_type_id = order.shipping_type
-        discount_code = order.discount_code
-        # for now, we don't need to override with anything from v.me cos we are just doing
-        # payment flow right now....TODO-VME: later for cart flow though, we'll need to tweek
-        # build_order_form_data() so it overrides the appropriate shipping address fields
-        # if they exist in the response...though they do seem to exist regardless of
-        # whether it's payment or cart flow...which could be a problem...
-        order_form_data = vme_build_order_form_data(vme_checkout_details, model_to_dict(order), order.payment_gateway_transaction_id)
-        what_to_hide = everything
-
-    # Need to stash the shipping_type in the session here cos sadly that's
-    # where the discount form grabs it from in order to validate whether the
-    # discount code is valid for the shipping type
-    shipping_type = get_freight_type_for_id(order.currency, shipping_type_id)
-    request.session['shipping_type'] = shipping_type.id
-    shipping_form = ShippingForm(request, order.currency, initial={'id': shipping_type.id})
-    if not is_valid_shipping_choice(order.currency, shipping_type.id, shipping_detail_country):
-        shipping_form.errors['id'] = 'The chosen shipping option is invalid for the destination country.'
-
-    # We need the discount form too because discount code validity depends on
-    # shipping type chosen, which depends on shipping address
-    discount_form = DiscountForm(request, {'discount_code': discount_code})
-    discount_form.is_valid()
-
-    form_class = get_callable(settings.SHOP_CHECKOUT_FORM_CLASS)
-    form_args = dict(
-        request=request,
-        step=1,
-        initial=order_form_data,
-        data=order_form_data,
-        hidden=what_to_hide
-    )
-    order_form = form_class(**form_args)
-
-    # For the payment flow, this should never happen really
-    if shipping_form.errors or not order_form.is_valid() or not discount_form.is_valid():
-        # TODO-VME: implement actual response so they can fix whatever was invalid
-        # so when the make some changes after something was invalid....we want
-        # to I think, resubmit the form....and obviously validate their address and stuff
-        # and make sure that gets stored on the order again too....but what about if the shipping
-        # amount changes....by ap_confirm_purchase won't get called until all forms validate....
-        # but we WILL need to make sure that we resave the order form onto the order
-        # TODO-VME: need to make sure that we resave the order form onto the order
-        form_args['hidden'] = everything_except_shipping
-        order_form = form_class(**form_args)
-        order_form.is_valid()
-        return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, call_id)
-
-    # If an item is out of stock, then for now we just abort the transaction
-    no_stock = []
-    cart = request.cart
-    for cart_item in cart.has_no_stock():
-        no_stock += [unicode(cart_item.variation())]
-        cart_item.delete()
-    if len(no_stock) != 0:
-        delattr(cart, '_cached_items')
-        log_no_stock_order_aborted(order, no_stock)
-        order.delete()
-        # TODO-VME: need to tweek up this template to how they want it
-        return render(request, 'shop/vme_aborted.html')
-
-    if not confirming_and_paying:
-        return vme_confirmation_response(request, order, order_form, shipping_form, shipping_type.charge, discount_form, call_id)
-
-    ###################
-    # Confirm and pay #
-    ###################
-
-    # TODO-VME: need to do the actual payment. need a way to distinguish between the
-    # the post back from v.me and the post that comes from the user clicking confirm
-    # on the confirm & pay page (submitting the hidden order form)
-
-    # So now we try to actually do the payment
-    for field_name, value in order_form.cleaned_data.iteritems():
-        if hasattr(order, field_name) and value:
-            setattr(order, field_name, value)
-    order.shipping_total = shipping_type.charge
-    order.payment_gateway_transaction_type = settings.VME
-    try:
-        # TODO-VME: so here we need to be looking at reponse codes and potentially
-        # throwing checkout errors....what do we want to do if their payment
-        # fails or we deem them too risky? Just show them the error message
-        # and leave them at this page, so they can try again (which will probably be
-        # fruitless) or abort them? I prefer abort them.
-
-        ap_confirm_purchase(order, call_id)
-        auth_result = ap_auth(order, call_id)
-
-        # Log the transaction to Decision Manager
-        risk_indicator = getattr(
-            getattr(auth_result, 'apReply', None),
-            'riskIndicator', None
-        )
-        order = vme_update_order_billing_details(auth_result, order)
-        if risk_indicator:
-            # Update order with billing details from ap_auth
-            try:
-                afs_result = afs(order, call_id, risk_indicator)
-            except CybersourceRequiresReview:
-                order.status = ORDER_REVIEW
-            else:
-                order.status = ORDER_PROCESSED
-
-        # Now capture their money
-        capture_result = ap_capture(order, auth_result.requestID)
-
-        response = finalise_order(
-            # TODO-VME: maybe this should be something different from the ap_auth.requestID
-            # this should probably be I think auth_result.apReply.orderID which is
-            # actually the call_id from V.Me
-            capture_result.requestID,
-            request,
-            order,
-            order_form.cleaned_data
-        )
-        # We need to get rid of these magic numbers but this means "PROCESSED"
-        order.save()
-        return response
-    except (VMeFlowError, checkout.CheckoutError):
-        # Revert product stock changes and delete order
-        for item in request.cart:
-            try:
-                variation = ProductVariation.objects.get(sku=item.sku)
-            except ProductVariation.DoesNotExist:
-                pass
-            else:
-                amount = item.quantity
-                variation.num_in_stock += amount
-                variation.num_in_stock_pool += amount
-        order.delete()
-        return render(request, 'shop/vme_aborted.html')
-
 
 
 def _emanates_from_cart_page(request):
